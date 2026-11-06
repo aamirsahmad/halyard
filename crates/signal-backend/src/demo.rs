@@ -176,6 +176,7 @@ pub fn seed(db: &mut Database, now: Millis) -> signal_core::db::Result<()> {
             expires_in_secs: None,
             kind: MessageKind::Normal,
             body_ranges: vec![],
+            link_preview: None,
         }))?;
     }
     db.apply(Mutation::React {
@@ -209,6 +210,13 @@ pub fn seed(db: &mut Database, now: Millis) -> signal_core::db::Result<()> {
         },
     ];
     formatted.body = "It's the best soup: https://example.com/recipes/tomato-basil".into();
+    formatted.link_preview = Some(signal_core::LinkPreview {
+        url: "https://example.com/recipes/tomato-basil".into(),
+        title: Some("Tomato basil soup".into()),
+        description: Some(
+            "A 20-minute weeknight soup with roasted tomatoes and fresh basil.".into(),
+        ),
+    });
     db.apply(Mutation::InsertMessage(formatted))?;
     let mut mention = NewMessage::text(
         group,
@@ -442,6 +450,7 @@ fn demo_reaction(
                     expires_in_secs: timer,
                     kind: MessageKind::Normal,
                     body_ranges: vec![],
+                    link_preview: None,
                 }),
             );
             vec![Mutation::InsertMessage(NewMessage {
@@ -458,6 +467,7 @@ fn demo_reaction(
                 expires_in_secs: timer,
                 kind: MessageKind::Normal,
                 body_ranges: vec![],
+                link_preview: None,
             })]
         }
         BackendCommand::Resend {

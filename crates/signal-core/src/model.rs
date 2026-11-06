@@ -131,6 +131,23 @@ pub enum MessageKind {
     TimerChanged { secs: Option<u32> },
 }
 
+/// A link preview card attached to a message.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LinkPreview {
+    pub url: String,
+    pub title: Option<String>,
+    pub description: Option<String>,
+}
+
+impl LinkPreview {
+    /// Host shown under the title, like Signal ("example.com").
+    pub fn domain(&self) -> String {
+        let rest = self.url.split("://").nth(1).unwrap_or(&self.url);
+        let host = rest.split(['/', '?', '#']).next().unwrap_or(rest);
+        host.trim_start_matches("www.").to_string()
+    }
+}
+
 /// A previous version of an edited message.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Revision {
@@ -163,6 +180,7 @@ pub struct Message {
     pub body_ranges: Vec<BodyRange>,
     /// Earlier versions, oldest first.
     pub edit_history: Vec<Revision>,
+    pub link_preview: Option<LinkPreview>,
 }
 
 impl Message {
@@ -411,7 +429,22 @@ mod tests {
             kind: MessageKind::Normal,
             body_ranges: vec![],
             edit_history: vec![],
+            link_preview: None,
         }
+    }
+
+    #[test]
+    fn link_preview_domain() {
+        let p = |u: &str| {
+            LinkPreview {
+                url: u.into(),
+                title: None,
+                description: None,
+            }
+            .domain()
+        };
+        assert_eq!(p("https://www.signal.org/download?x=1"), "signal.org");
+        assert_eq!(p("http://a.b"), "a.b");
     }
 
     #[test]

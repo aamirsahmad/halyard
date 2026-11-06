@@ -118,6 +118,7 @@ mod tests {
             kind: MessageKind::Normal,
             body_ranges: vec![],
             edit_history: vec![],
+            link_preview: None,
         }
     }
 

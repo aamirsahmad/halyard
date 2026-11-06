@@ -30,7 +30,7 @@ pub enum DbError {
 
 pub type Result<T> = std::result::Result<T, DbError>;
 
-pub const SCHEMA_VERSION: i64 = 2;
+pub const SCHEMA_VERSION: i64 = 3;
 
 const MIGRATIONS: &[&str] = &[
     // v1
@@ -90,6 +90,10 @@ const MIGRATIONS: &[&str] = &[
     ALTER TABLE messages ADD COLUMN edit_history TEXT NOT NULL DEFAULT '[]';
     CREATE INDEX messages_by_expiry ON messages(expires_at) WHERE expires_at IS NOT NULL;
     "#,
+    // v3: link previews
+    r#"
+    ALTER TABLE messages ADD COLUMN link_preview TEXT;
+    "#,
 ];
 
 pub struct Database {
@@ -98,7 +102,7 @@ pub struct Database {
 
 const MESSAGE_COLUMNS: &str = "id, conversation_id, author, sent_at, received_at, outgoing, body, \
      attachments, quote, reactions, status, read, edited_at, deleted, expires_in, expires_at, kind, \
-     body_ranges, edit_history";
+     body_ranges, edit_history, link_preview";
 
 const CONVERSATION_COLUMNS: &str = "id, title, last_activity, last_preview, last_preview_outgoing, \
      unread_count, pinned, archived, muted_until, draft, members, marked_unread, expire_timer, \
@@ -149,6 +153,9 @@ fn message_from_row(row: &Row) -> rusqlite::Result<Message> {
         kind: json_col(row, 16)?,
         body_ranges: json_col(row, 17)?,
         edit_history: json_col(row, 18)?,
+        link_preview: row
+            .get::<_, Option<String>>(19)?
+            .and_then(|p| serde_json::from_str(&p).ok()),
     })
 }
 
@@ -1090,8 +1097,8 @@ impl Writer<'_> {
         let quote = m.quote.as_ref().map(serde_json::to_string).transpose()?;
         let n = self.conn.execute(
             "INSERT OR IGNORE INTO messages (conversation_id, author, sent_at, received_at, outgoing, \
-             body, attachments, quote, status, read, expires_in, expires_at, kind, body_ranges) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+             body, attachments, quote, status, read, expires_in, expires_at, kind, body_ranges, link_preview) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
             params![
                 m.conversation.to_string(),
                 m.author.to_string(),
@@ -1110,6 +1117,7 @@ impl Writer<'_> {
                     .map(|s| m.sent_at + s as i64 * 1000),
                 serde_json::to_string(&m.kind)?,
                 serde_json::to_string(&m.body_ranges)?,
+                m.link_preview.as_ref().map(serde_json::to_string).transpose()?,
             ],
         )?;
         Ok((n == 1).then(|| self.conn.last_insert_rowid()))

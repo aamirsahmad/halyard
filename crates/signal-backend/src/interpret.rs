@@ -24,6 +24,8 @@ pub struct Ctx<'a> {
     pub group_by_id: &'a dyn Fn(&[u8]) -> Option<GroupKey>,
 }
 
+// Short-lived values produced per envelope; boxing would only add allocations.
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, PartialEq)]
 pub enum Output {
     Mutation(Mutation),
@@ -143,12 +145,62 @@ fn data_message(
         return;
     }
 
-    let body = dm.body.clone().unwrap_or_default();
-    let attachments: Vec<Attachment> = dm.attachments.iter().map(attachment_from_pointer).collect();
-    if body.trim().is_empty() && attachments.is_empty() {
-        // profile key updates, timer changes, group updates, unsupported content…
-        return;
+    let mut body = dm.body.clone().unwrap_or_default();
+    let mut attachments: Vec<Attachment> =
+        dm.attachments.iter().map(attachment_from_pointer).collect();
+    // stickers are shown as images
+    if let Some(sticker) = &dm.sticker
+        && let Some(data) = &sticker.data
+    {
+        let mut a = attachment_from_pointer(data);
+        if a.content_type == "application/octet-stream" {
+            a.content_type = "image/webp".into();
+        }
+        a.file_name = Some("sticker.webp".into());
+        attachments.push(a);
     }
+    // shared contact cards
+    for c in &dm.contact {
+        let name = c
+            .name
+            .as_ref()
+            .and_then(|n| {
+                let parts: Vec<&str> = [n.given_name.as_deref(), n.family_name.as_deref()]
+                    .into_iter()
+                    .flatten()
+                    .collect();
+                (!parts.is_empty()).then(|| parts.join(" "))
+            })
+            .or_else(|| c.organization.clone())
+            .unwrap_or_else(|| "Contact".into());
+        let phone = c.number.iter().find_map(|p| p.value.clone());
+        let card = match phone {
+            Some(p) => format!("👤 {name} · {p}"),
+            None => format!("👤 {name}"),
+        };
+        body = if body.is_empty() {
+            card
+        } else {
+            format!("{body}\n{card}")
+        };
+    }
+    let unsupported = dm.poll_create.is_some() || dm.payment.is_some() || dm.gift_badge.is_some();
+    if body.trim().is_empty() && attachments.is_empty() {
+        if unsupported {
+            body = "⚠️ This message can't be displayed on this device yet.".into();
+        } else {
+            // profile key updates, group updates, …
+            return;
+        }
+    }
+    let link_preview = dm.preview.iter().find_map(|p| {
+        let url = p.url.clone().filter(|u| !u.is_empty())?;
+        Some(signal_core::LinkPreview {
+            url,
+            title: p.title.clone().filter(|t| !t.is_empty()),
+            description: p.description.clone().filter(|t| !t.is_empty()),
+        })
+    });
     out.push(Output::Mutation(Mutation::InsertMessage(NewMessage {
         conversation,
         author,
@@ -171,6 +223,7 @@ fn data_message(
             .iter()
             .filter_map(body_range_from_proto)
             .collect(),
+        link_preview,
     })));
 }
 
@@ -656,6 +709,73 @@ mod tests {
             ..Default::default()
         };
         assert!(run(&content(ME, t)).is_empty());
+    }
+
+    #[test]
+    fn stickers_contacts_previews_and_unsupported() {
+        let dm = DataMessage {
+            timestamp: Some(1),
+            sticker: Some(data_message::Sticker {
+                data: Some(AttachmentPointer {
+                    key: Some(vec![1; 64]),
+                    ..Default::default()
+                }),
+                emoji: Some("😀".into()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let Mutation::InsertMessage(m) = only_mutation(run(&content(ALICE, dm))) else {
+            panic!()
+        };
+        assert_eq!(m.attachments[0].content_type, "image/webp");
+
+        let dm = DataMessage {
+            timestamp: Some(2),
+            contact: vec![data_message::Contact {
+                name: Some(data_message::contact::Name {
+                    given_name: Some("Dana".into()),
+                    family_name: Some("Lee".into()),
+                    ..Default::default()
+                }),
+                number: vec![data_message::contact::Phone {
+                    value: Some("+1 555 0199".into()),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let Mutation::InsertMessage(m) = only_mutation(run(&content(ALICE, dm))) else {
+            panic!()
+        };
+        assert_eq!(m.body, "👤 Dana Lee · +1 555 0199");
+
+        let mut dm = text(3, "look https://signal.org");
+        dm.preview = vec![presage::libsignal_service::proto::Preview {
+            url: Some("https://signal.org".into()),
+            title: Some("Signal".into()),
+            description: Some("Speak freely".into()),
+            ..Default::default()
+        }];
+        let Mutation::InsertMessage(m) = only_mutation(run(&content(ALICE, dm))) else {
+            panic!()
+        };
+        let p = m.link_preview.unwrap();
+        assert_eq!(
+            (p.url.as_str(), p.title.as_deref()),
+            ("https://signal.org", Some("Signal"))
+        );
+
+        let dm = DataMessage {
+            timestamp: Some(4),
+            payment: Some(Default::default()),
+            ..Default::default()
+        };
+        let Mutation::InsertMessage(m) = only_mutation(run(&content(ALICE, dm))) else {
+            panic!()
+        };
+        assert!(m.body.contains("can't be displayed"));
     }
 
     #[test]

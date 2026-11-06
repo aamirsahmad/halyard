@@ -120,6 +120,7 @@ fn incoming(id: i64, conv: ConversationId, author: uuid::Uuid, body: &str) -> Me
         kind: MessageKind::Normal,
         body_ranges: vec![],
         edit_history: vec![],
+        link_preview: None,
     }
 }
 

@@ -7,8 +7,8 @@ use uuid::Uuid;
 
 use crate::ids::{ConversationId, GroupKey};
 use crate::model::{
-    AccountInfo, Attachment, BodyRange, Contact, Conversation, Message, MessageKind, MessageStatus,
-    Millis, Quote,
+    AccountInfo, Attachment, BodyRange, Contact, Conversation, LinkPreview, Message, MessageKind,
+    MessageStatus, Millis, Quote,
 };
 
 /// Commands sent from the UI to the backend.
@@ -166,6 +166,7 @@ pub struct NewMessage {
     pub expires_in_secs: Option<u32>,
     pub kind: MessageKind,
     pub body_ranges: Vec<BodyRange>,
+    pub link_preview: Option<LinkPreview>,
 }
 
 impl NewMessage {
@@ -195,6 +196,7 @@ impl NewMessage {
             expires_in_secs: None,
             kind: MessageKind::Normal,
             body_ranges: Vec::new(),
+            link_preview: None,
         }
     }
 }

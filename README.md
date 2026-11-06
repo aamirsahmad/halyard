@@ -13,26 +13,21 @@ This version supports messaging only. Voice and video calls are planned.
 
 ## Features
 
-| Feature | Status |
+The UI follows Signal Desktop closely; see [PARITY.md](PARITY.md) for a feature-by-feature
+comparison. Highlights:
+
+| Area | Features |
 |---|---|
-| Link as a secondary device (QR code, like Signal Desktop) | ✅ |
-| 1:1 and group (v2) messages: send and receive | ✅ |
-| Replies (quotes), reactions, delete for everyone | ✅ |
-| Editing messages: edit your own text messages within 24 hours; incoming edits are shown with an "Edited" label | ✅ |
-| Note to Self (syncs with your other devices) | ✅ |
-| Read and delivery receipts, typing indicators, read sync with your other devices | ✅ |
-| Sending attachments (file picker, up to 100 MB) | ✅ |
-| Receiving attachments (images inline, other files open in their default app) | ✅ |
-| Contacts and groups synced from your phone, profile names | ✅ |
-| Group members / chat details panel | ✅ |
-| Pin, mute, archive, drafts, search (chats and message text) | ✅ |
-| Desktop notifications, unread count in the window title | ✅ |
-| Light and dark themes (follows the system by default) | ✅ |
-| Encrypted identity/session store, message store and attachment store | ✅ |
-| Keyboard shortcuts: ⌘/Ctrl+N new chat, ⌘/Ctrl+F search, Alt+↑/↓ switch chats, Esc | ✅ |
-| Registering as a primary device, phone-number contact discovery | ❌ |
-| Voice notes (recording/playback), stickers, stories, payments | ❌ |
-| Voice and video calls | 🔜 planned |
+| Account | Link as a secondary device (QR code), profile and device info, unlink |
+| Messaging | 1:1 and group (v2) chats, Note to Self, replies, reactions (quick bar + full emoji picker), edit (24 h) with history, delete for me / for everyone, forward, message info |
+| Rich content | Bold / italic / strikethrough / monospace / spoiler formatting, @mentions, clickable links, link-preview cards, stickers, shared contacts, image viewer with Save As, file attachments (picker or drag and drop, up to 100 MB) |
+| Privacy | Disappearing messages (timer, countdown, notices), message requests (accept / block / delete), block / unblock, safety numbers, read receipts and typing indicators toggles, notification content setting |
+| Chat list | Pin, timed mute, mark read/unread, archive, delete, drafts, typing previews, search across chats and messages, search within a chat, unread divider |
+| App | Light / dark / system themes with Signal's accent, desktop notifications, unread count in the title, keyboard shortcuts (⌘/Ctrl+N, ⌘/Ctrl+F, Alt+↑/↓, ⌘/Ctrl+, , ⌘/Ctrl+/, Esc) |
+| Storage | Encrypted (SQLCipher) protocol and message stores, AES-256-GCM encrypted attachment store |
+
+Not supported yet: registering as a primary device, phone-number contact discovery, leaving
+groups, voice-note recording/playback, stories, zoom. Voice and video calls are planned.
 
 ## Architecture
 
@@ -127,7 +122,8 @@ script/test-linux.sh                                           # full suite in a
   (starts unlinked, creates encrypted stores).
 * **signal-app**: headless UI integration tests (`#[gpui_kit::test]`) drive the real
   views with clicks and keystrokes: open a chat, send, reply, search, new-chat picker,
-  archive, linking flow, drafts, notifications, the members panel, editing and Note to Self. A rendering test
+  archive, linking flow, drafts, notifications, the members panel, editing, Note to Self
+  (`tests/ui.rs`), and every Signal Desktop parity feature (`tests/parity.rs`). A rendering test
   paints every screen with the real GPU renderer in light and dark themes.
 
 CI (`.github/workflows/ci.yml`) runs fmt, clippy (`-D warnings`), tests, rendering tests

@@ -853,6 +853,7 @@ impl Worker {
                     expires_in_secs: timer,
                     kind: MessageKind::Normal,
                     body_ranges: vec![],
+                    link_preview: None,
                 }));
                 self.emit_changes(ch);
                 ts

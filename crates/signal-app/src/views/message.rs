@@ -237,6 +237,39 @@ fn render_message(
         for (i, a) in m.attachments.iter().enumerate() {
             bubble = bubble.child(render_attachment(data, &app, id, i, a, fg, meta));
         }
+        if let Some(lp) = &m.link_preview {
+            let url = lp.url.clone();
+            bubble = bubble.child(
+                div()
+                    .id(ElementId::Name(format!("link-preview-{id}").into()))
+                    .flex()
+                    .flex_col()
+                    .gap(px(2.))
+                    .p_2()
+                    .rounded(px(8.))
+                    .bg(if outgoing {
+                        p.quote_outgoing
+                    } else {
+                        p.quote_incoming
+                    })
+                    .cursor_pointer()
+                    .on_click(move |_, _, cx| cx.open_url(&url))
+                    .when_some(lp.title.clone(), |d, t| {
+                        d.child(
+                            div()
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .text_size(px(13.))
+                                .line_clamp(2)
+                                .child(t),
+                        )
+                    })
+                    .when_some(lp.description.clone(), |d, t| {
+                        d.child(div().text_size(px(12.)).line_clamp(2).child(t))
+                    })
+                    .child(div().text_size(px(11.)).text_color(meta).child(lp.domain()))
+                    .test_support(),
+            );
+        }
         if !m.body.is_empty() {
             bubble = bubble.child(crate::views::rich_text::render_body(
                 m.id,
@@ -393,7 +426,13 @@ fn render_message(
             .when(outgoing, |d| d.justify_end().pr_2())
             .when(!outgoing, |d| d.pl_2())
             .children(reactions.into_iter().map(|(emoji, count)| {
+                let app = app.clone();
                 div()
+                    .id(ElementId::Name(format!("reaction-{id}-{emoji}").into()))
+                    .cursor_pointer()
+                    .on_click(move |_, window, cx| {
+                        let _ = app.update(cx, |this, cx| this.show_message_info(id, window, cx));
+                    })
                     .flex()
                     .items_center()
                     .gap_1()

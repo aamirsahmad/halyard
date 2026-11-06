@@ -3,7 +3,7 @@
 What Signal Desktop does and where this client stands. Voice and video calls are
 deliberately out of scope for now.
 
-Legend: ✅ done · 🚧 partial · ⬜ not yet
+Legend: ✅ done · 🚧 partial · ⬜ not yet · ✖ not supported (reason given)
 
 ## Chat list (left pane)
 
@@ -14,11 +14,12 @@ Legend: ✅ done · 🚧 partial · ⬜ not yet
 | Search chats, contacts and message text | ✅ |
 | New chat (contact picker), Note to Self | ✅ |
 | Archived chats view | ✅ |
-| Right-click menu on a chat: pin, mute, mark read/unread, archive, delete | ⬜ |
-| Mute for 1 hour / 8 hours / 1 day / 1 week / always | ⬜ |
-| Mark as unread | ⬜ |
-| Delete chat (local) | ⬜ |
-| Draft and typing previews | ✅ |
+| Right-click menu on a chat: pin, mute, mark read/unread, archive, delete | ✅ |
+| Mute for 1 hour / 8 hours / 1 day / 1 week / always | ✅ |
+| Mark as unread (blue dot) | ✅ |
+| Delete chat (local, with confirmation) | ✅ |
+| Draft, typing, "Message request" and "Blocked" previews | ✅ |
+| Mention and timer-notice previews with names | ✅ |
 | Connection banner (connecting / offline) | ✅ |
 
 ## Conversation
@@ -27,41 +28,42 @@ Legend: ✅ done · 🚧 partial · ⬜ not yet
 |---|---|
 | Bubbles with sender grouping, date separators, delivery status | ✅ |
 | Group sender names and avatars | ✅ |
-| Header with chat details / group members | ✅ |
-| Hover reaction bar (6 quick reactions + more) | ⬜ |
-| Reactions: pills with counts; who reacted | 🚧 |
-| Reply (quote) | ✅ |
-| Click a quote to jump to the original message | ⬜ |
-| Edit own messages; "Edited" label | ✅ |
-| Edit history | ⬜ |
-| Delete for everyone | ✅ |
-| Delete for me | ⬜ |
-| Forward message | ⬜ |
-| Message info (sent/received time, status) | ⬜ |
+| Header: chat details / group members, search, menu | ✅ |
+| Hover actions: reaction bar (6 quick reactions + all emoji), reply, more | ✅ |
+| Reactions: pills with counts; click to see who reacted | ✅ |
+| Reply (quote); click a quote to jump to the original | ✅ |
+| Edit own messages (24 h); "Edited" label; edit history in Info | ✅ |
+| Delete for everyone; delete for me | ✅ |
+| Forward to one or more chats | ✅ |
+| Message info (times, status, reactions, attachments, edit history) | ✅ |
 | Copy text | ✅ |
-| Clickable links | ⬜ |
-| Text formatting (bold, italic, strikethrough, monospace, spoiler) and @mentions | ⬜ |
-| Unread messages divider | ⬜ |
-| Full date on timestamp hover | ⬜ |
+| Clickable links and link-preview cards | ✅ |
+| Formatting (bold, italic, strikethrough, monospace, spoiler) and @mentions | ✅ |
+| Unread messages divider; chats open at the first unread message | ✅ |
+| Full date on timestamp hover | ✅ |
 | Typing indicator | ✅ |
 | Jump to latest | ✅ |
-| Disappearing messages (timer setting, countdown, auto-delete, timer notices) | ⬜ |
+| Disappearing messages: timer setting, countdown, auto-delete, timer notices | ✅ |
 | Image attachments inline; files open externally | ✅ |
-| Image viewer (lightbox) | ⬜ |
-| Search within a conversation | ⬜ |
-| Message requests for unknown senders (accept / block / delete) | ⬜ |
-| Block / unblock contacts | ⬜ |
-| Safety number view | ⬜ |
-| Leave group | ⬜ |
+| Stickers (shown as images), shared contacts | ✅ |
+| Placeholder for unsupported message types (payments, polls, gift badges) | ✅ |
+| Image viewer (lightbox) with Open and Save As | ✅ |
+| Search within a conversation | ✅ |
+| Message requests for unknown senders (accept / block / delete) | ✅ |
+| Block / unblock contacts | ✅ |
+| Safety number view | ✅ |
+| Leave group | ✖ presage has no group-change (membership) API yet |
+| Voice notes: recording and playback | ✖ no audio stack yet; voice notes open in the default player |
 
 ## Composer
 
 | Feature | Status |
 |---|---|
 | Multi-line input, Enter to send, Shift+Enter for a newline | ✅ |
-| Attach files (picker) | ✅ |
-| Drag and drop / paste files | ⬜ |
-| Emoji picker | ⬜ |
+| Enter-to-send preference (⌘/Ctrl+Enter sends when off) | ✅ |
+| Attach files (picker) and drag and drop | ✅ |
+| Emoji picker with search | ✅ |
+| Reply and edit banners | ✅ |
 | Drafts | ✅ |
 
 ## App
@@ -69,11 +71,11 @@ Legend: ✅ done · 🚧 partial · ⬜ not yet
 | Feature | Status |
 |---|---|
 | Device linking with QR code | ✅ |
-| Light / dark / system theme | ✅ |
+| Light / dark / system theme, Signal accent colour | ✅ |
 | Desktop notifications, unread count in title | ✅ |
-| Preferences: notification content, read receipts, typing indicators, Enter-to-send, theme | ⬜ |
-| Keyboard shortcuts dialog | ⬜ |
-| Zoom in / out | ⬜ |
-| Profile (your name, phone) and linked-device info | ⬜ |
-| Stories | ⬜ (not planned yet) |
+| Preferences: notifications on/off, notification content, read receipts, typing indicators, Enter-to-send, theme | ✅ |
+| Keyboard shortcuts and shortcuts dialog | ✅ |
+| Profile / linked-device info, unlink | ✅ |
+| Zoom in / out | ✖ GPUI has no global UI scale yet |
+| Stories | ⬜ not planned yet |
 | Voice / video calls | out of scope |

@@ -26,6 +26,7 @@ fn incoming(conv: ConversationId, author: Uuid, sent_at: Millis, body: &str) -> 
         expires_in_secs: None,
         kind: MessageKind::Normal,
         body_ranges: vec![],
+        link_preview: None,
     })
 }
 
@@ -44,6 +45,7 @@ fn outgoing(conv: ConversationId, sent_at: Millis, body: &str) -> Mutation {
         expires_in_secs: None,
         kind: MessageKind::Normal,
         body_ranges: vec![],
+        link_preview: None,
     })
 }
 
@@ -452,6 +454,7 @@ fn attachments_and_quotes_roundtrip() {
         expires_in_secs: Some(3600),
         kind: MessageKind::Normal,
         body_ranges: vec![],
+        link_preview: None,
     }))
     .unwrap();
     let m = db.message_by_key(&alice(), &ME, 10).unwrap().unwrap();
@@ -519,6 +522,7 @@ fn attachment_download_updates_path() {
             expires_in_secs: None,
             kind: MessageKind::Normal,
             body_ranges: vec![],
+            link_preview: None,
         }))
         .unwrap();
     let id = ch.messages[0].id;
@@ -569,7 +573,7 @@ fn migrates_v1_database_preserving_mutes() {
         .unwrap();
     }
     let db = Database::open(&path, None).unwrap();
-    assert_eq!(db.schema_version().unwrap(), 2);
+    assert_eq!(db.schema_version().unwrap(), SCHEMA_VERSION);
     let c = db.conversation(&alice()).unwrap().unwrap();
     assert!(c.muted);
     assert_eq!(c.muted_until, Some(i64::MAX));

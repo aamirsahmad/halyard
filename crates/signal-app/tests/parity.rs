@@ -476,3 +476,28 @@ fn safety_number_request_and_dialog(cx: &mut TestAppContext) {
         assert!(w.try_find("safety-number").is_some())
     });
 }
+
+#[gpui_kit::test]
+fn link_preview_card_renders(cx: &mut TestAppContext) {
+    let h = setup(cx);
+    with_app(cx, &h, |a, w, cx| {
+        a.open_conversation(
+            ConversationId::Direct(signal_backend::demo::DEMO_CAROL),
+            w,
+            cx,
+        )
+    });
+    let id = cx.update(|cx| {
+        h.app
+            .read(cx)
+            .state()
+            .messages()
+            .iter()
+            .find(|m| m.link_preview.is_some())
+            .unwrap()
+            .id
+    });
+    with_window(cx, &h, |w, _| {
+        assert!(w.try_find(eid(format!("link-preview-{id}"))).is_some())
+    });
+}
