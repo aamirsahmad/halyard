@@ -724,3 +724,48 @@ fn edit_profile_sends_update(cx: &mut TestAppContext) {
         }]
     );
 }
+
+#[gpui_kit::test]
+fn mention_autocomplete_sends_a_real_mention(cx: &mut TestAppContext) {
+    let h = setup(cx);
+    with_app(cx, &h, |a, w, cx| {
+        a.open_conversation(ConversationId::Group(DEMO_GROUP), w, cx)
+    });
+    with_window(cx, &h, |w, cx| w.input("thanks @ali", cx));
+    with_window(cx, &h, |w, cx| {
+        assert!(
+            w.try_find(eid(format!("mention-{DEMO_BOB}"))).is_none(),
+            "filtered by name"
+        );
+        w.click(eid(format!("mention-{DEMO_ALICE}")), cx);
+    });
+    cx.update(|cx| {
+        assert_eq!(
+            h.app.read(cx).composer().read(cx).value().as_ref(),
+            "thanks @Alice Johnson "
+        );
+    });
+    h.sink.take();
+    with_window(cx, &h, |w, cx| {
+        assert!(
+            w.try_find("mention-suggestions").is_none(),
+            "closed after picking"
+        );
+        w.input("for organizing!", cx);
+        w.press("enter", cx);
+    });
+    let sent = h.sink.take().into_iter().find_map(|c| match c {
+        BackendCommand::SendText { body, ranges, .. } => Some((body, ranges)),
+        _ => None,
+    });
+    let (body, ranges) = sent.expect("sent");
+    assert_eq!(body, "thanks \u{FFFC} for organizing!");
+    assert_eq!(
+        ranges,
+        vec![signal_core::BodyRange {
+            start: 7,
+            length: 1,
+            kind: signal_core::RangeKind::Mention(DEMO_ALICE)
+        }]
+    );
+}

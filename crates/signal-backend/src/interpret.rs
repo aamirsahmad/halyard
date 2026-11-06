@@ -251,6 +251,24 @@ fn data_message(
     })));
 }
 
+/// Converts a domain body range into the protocol form.
+pub fn body_range_to_proto(r: &signal_core::BodyRange) -> BodyRange {
+    use body_range::{AssociatedValue, Style};
+    let value = match &r.kind {
+        RangeKind::Mention(u) => AssociatedValue::MentionAci(u.to_string()),
+        RangeKind::Bold => AssociatedValue::Style(Style::Bold as i32),
+        RangeKind::Italic => AssociatedValue::Style(Style::Italic as i32),
+        RangeKind::Spoiler => AssociatedValue::Style(Style::Spoiler as i32),
+        RangeKind::Strikethrough => AssociatedValue::Style(Style::Strikethrough as i32),
+        RangeKind::Monospace => AssociatedValue::Style(Style::Monospace as i32),
+    };
+    BodyRange {
+        start: Some(r.start),
+        length: Some(r.length),
+        associated_value: Some(value),
+    }
+}
+
 /// Converts a protocol body range (style or mention) into the domain model.
 pub fn body_range_from_proto(r: &BodyRange) -> Option<signal_core::BodyRange> {
     use body_range::{AssociatedValue, Style};
@@ -960,6 +978,23 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn body_ranges_roundtrip_through_proto() {
+        for kind in [
+            RangeKind::Mention(BOB),
+            RangeKind::Bold,
+            RangeKind::Spoiler,
+            RangeKind::Monospace,
+        ] {
+            let r = signal_core::BodyRange {
+                start: 2,
+                length: 3,
+                kind,
+            };
+            assert_eq!(body_range_from_proto(&body_range_to_proto(&r)), Some(r));
+        }
     }
 
     #[test]

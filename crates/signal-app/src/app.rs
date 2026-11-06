@@ -167,6 +167,8 @@ pub struct SignalApp {
     pub(crate) profile_family: Entity<InputState>,
     pub(crate) profile_about: Entity<InputState>,
     pub(crate) recorder: Option<crate::audio::Recorder>,
+    /// Members picked from the @mention list while composing.
+    pub(crate) pending_mentions: Vec<(String, Uuid)>,
     audio_was_active: bool,
     pub(crate) composer_emoji: Entity<crate::views::emoji_picker::EmojiPicker>,
     pub(crate) reaction_picker: Entity<crate::views::emoji_picker::EmojiPicker>,
@@ -337,6 +339,7 @@ impl SignalApp {
             profile_family,
             profile_about,
             recorder: None,
+            pending_mentions: Vec::new(),
             audio_was_active: false,
             composer_emoji,
             reaction_picker,
@@ -735,11 +738,65 @@ impl SignalApp {
                 body: String::new(),
                 quote: None,
                 attachments: vec![path],
+                ranges: vec![],
             }),
             Err(e) => window.push_notification(
                 Notification::error(format!("Couldn't save the recording: {e}")),
                 cx,
             ),
+        }
+        cx.notify();
+    }
+
+    /// Members matching the @mention being typed in a group composer.
+    pub fn mention_suggestions(&self, cx: &gpui_kit::App) -> Vec<(Uuid, String)> {
+        let Some(id) = self.state.selected().filter(|c| c.is_group()) else {
+            return Vec::new();
+        };
+        let text = self.composer.read(cx).value();
+        let Some(q) = signal_core::mentions::query(&text) else {
+            return Vec::new();
+        };
+        let q = q.to_lowercase();
+        let me = self.me();
+        self.members(id)
+            .into_iter()
+            .filter(|(u, name)| {
+                Some(*u) != me
+                    && name
+                        .to_lowercase()
+                        .split_whitespace()
+                        .any(|w| w.starts_with(&q))
+            })
+            .take(8)
+            .collect()
+    }
+
+    /// Inserts the chosen member as `@Name` and remembers the mention.
+    pub fn pick_mention(
+        &mut self,
+        uuid: Uuid,
+        name: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let text = self.composer.read(cx).value().to_string();
+        let new = signal_core::mentions::complete(&text, &name);
+        let last_line = new.rsplit('\n').next().unwrap_or_default();
+        let position = gpui_kit::component::input::Position::new(
+            new.matches('\n').count() as u32,
+            last_line.encode_utf16().count() as u32,
+        );
+        self.composer.update(cx, |c, cx| {
+            c.set_value(new, window, cx);
+            c.set_cursor_position(position, window, cx);
+        });
+        if !self
+            .pending_mentions
+            .iter()
+            .any(|(n, u)| *u == uuid && *n == name)
+        {
+            self.pending_mentions.push((name, uuid));
         }
         cx.notify();
     }
@@ -1029,11 +1086,14 @@ impl SignalApp {
             sent_at: m.sent_at,
             text: m.preview(),
         });
+        let (body, ranges) =
+            signal_core::mentions::encode(body.trim(), &std::mem::take(&mut self.pending_mentions));
         self.commands.send(BackendCommand::SendText {
             conversation,
-            body: body.trim().to_string(),
+            body,
             quote,
             attachments: std::mem::take(&mut self.pending_attachments),
+            ranges,
         });
         self.typing_sent = None;
         self.typing_generation += 1;

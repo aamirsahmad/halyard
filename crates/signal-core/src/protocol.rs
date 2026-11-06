@@ -23,6 +23,8 @@ pub enum BackendCommand {
         body: String,
         quote: Option<Quote>,
         attachments: Vec<PathBuf>,
+        /// Mentions (and formatting) over `body`, in UTF-16 offsets.
+        ranges: Vec<BodyRange>,
     },
     /// Retry a failed outgoing message.
     Resend {

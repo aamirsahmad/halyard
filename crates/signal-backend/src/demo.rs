@@ -389,6 +389,7 @@ fn demo_reaction(
                     body: body.clone(),
                     quote: None,
                     attachments: attachments.clone(),
+                    ranges: vec![],
                 };
                 demo_reaction(cmd, ts, db, later, delay, events)
             })
@@ -418,6 +419,7 @@ fn demo_reaction(
             body,
             quote,
             attachments,
+            ranges,
         } => {
             let timer = db
                 .conversation(&conversation)
@@ -504,7 +506,7 @@ fn demo_reaction(
                 read: true,
                 expires_in_secs: timer,
                 kind: MessageKind::Normal,
-                body_ranges: vec![],
+                body_ranges: ranges,
                 link_preview: None,
             })]
         }
@@ -647,6 +649,7 @@ mod tests {
             body: "ping".into(),
             quote: None,
             attachments: vec![],
+            ranges: vec![],
         });
         // wait for the simulated reply
         let deadline = std::time::Instant::now() + Duration::from_secs(5);

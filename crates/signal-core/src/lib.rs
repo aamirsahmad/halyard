@@ -7,6 +7,7 @@ pub mod avatar;
 pub mod db;
 pub mod format;
 pub mod ids;
+pub mod mentions;
 pub mod model;
 pub mod protocol;
 pub mod richtext;

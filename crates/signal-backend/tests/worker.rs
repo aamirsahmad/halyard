@@ -55,6 +55,7 @@ fn fresh_install_starts_unlinked_and_creates_encrypted_stores() {
         body: "hi".into(),
         quote: None,
         attachments: vec![],
+        ranges: vec![],
     });
     let err = wait_for(&events, Duration::from_secs(5), |e| {
         matches!(e, BackendEvent::Error(_))

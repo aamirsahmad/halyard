@@ -848,7 +848,14 @@ impl Worker {
                 attachments,
             } => {
                 for target in targets {
-                    self.send_text(target, body.clone(), None, attachments.clone(), None);
+                    self.send_text(
+                        target,
+                        body.clone(),
+                        None,
+                        vec![],
+                        attachments.clone(),
+                        None,
+                    );
                 }
             }
             BackendCommand::SendText {
@@ -856,7 +863,8 @@ impl Worker {
                 body,
                 quote,
                 attachments,
-            } => self.send_text(conversation, body, quote, attachments, None),
+                ranges,
+            } => self.send_text(conversation, body, quote, ranges, attachments, None),
             BackendCommand::Resend {
                 conversation,
                 sent_at,
@@ -868,7 +876,14 @@ impl Worker {
                         .iter()
                         .filter_map(|a| a.local_path.as_ref().map(PathBuf::from))
                         .collect();
-                    self.send_text(conversation, msg.body, msg.quote, paths, Some(sent_at));
+                    self.send_text(
+                        conversation,
+                        msg.body,
+                        msg.quote,
+                        msg.body_ranges,
+                        paths,
+                        Some(sent_at),
+                    );
                 }
             }
             BackendCommand::React {
@@ -1075,6 +1090,7 @@ impl Worker {
         conversation: ConversationId,
         body: String,
         quote: Option<Quote>,
+        ranges: Vec<signal_core::BodyRange>,
         attachment_paths: Vec<PathBuf>,
         resend_ts: Option<Millis>,
     ) {
@@ -1113,7 +1129,7 @@ impl Worker {
                     read: true,
                     expires_in_secs: timer,
                     kind: MessageKind::Normal,
-                    body_ranges: vec![],
+                    body_ranges: ranges.clone(),
                     link_preview: None,
                 }));
                 self.emit_changes(ch);
@@ -1131,6 +1147,7 @@ impl Worker {
                     body: Some(body).filter(|b| !b.is_empty()),
                     timestamp: Some(sent_at as u64),
                     expire_timer: Some(timer.unwrap_or(0)),
+                    body_ranges: ranges.iter().map(interpret::body_range_to_proto).collect(),
                     attachments: pointers,
                     quote: quote.map(|q| data_message::Quote {
                         id: Some(q.sent_at as u64),

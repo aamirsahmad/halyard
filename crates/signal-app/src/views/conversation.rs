@@ -572,6 +572,44 @@ impl SignalApp {
                 )
         });
 
+        let suggestions = self.mention_suggestions(cx);
+        let mentions = (!suggestions.is_empty()).then(|| {
+            div()
+                .id("mention-suggestions")
+                .flex()
+                .flex_col()
+                .mx_4()
+                .mt_2()
+                .p_1()
+                .rounded(rem_px(10.))
+                .border_1()
+                .border_color(p.border)
+                .bg(p.pane)
+                .children(suggestions.into_iter().map(|(uuid, name)| {
+                    let n = name.clone();
+                    div()
+                        .id(ElementId::Name(format!("mention-{uuid}").into()))
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .px_2()
+                        .py_1()
+                        .rounded(rem_px(6.))
+                        .cursor_pointer()
+                        .hover(|s| s.bg(p.hover))
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            this.pick_mention(uuid, n.clone(), window, cx)
+                        }))
+                        .child(
+                            Avatar::new(uuid.as_bytes().to_vec(), name.clone())
+                                .photo(self.photo_for(&signal_core::ConversationId::Direct(uuid)))
+                                .size(rem_px(24.)),
+                        )
+                        .child(name)
+                        .test_support()
+                }))
+                .test_support()
+        });
         let can_send = !self.composer.read(cx).value().trim().is_empty()
             || !self.pending_attachments.is_empty();
         div()
@@ -581,6 +619,7 @@ impl SignalApp {
             .flex_none()
             .pb_3()
             .children(reply)
+            .children(mentions)
             .children(editing)
             .children(attachments)
             .child(match self.recorder.as_ref().map(|r| r.elapsed()) {

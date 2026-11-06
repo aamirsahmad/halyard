@@ -182,6 +182,7 @@ fn typing_and_pressing_enter_sends_a_message(cx: &mut TestAppContext) {
                 body,
                 quote,
                 attachments,
+                ..
             } => Some((
                 *conversation,
                 body.clone(),
