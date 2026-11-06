@@ -124,7 +124,7 @@ impl SignalApp {
 
     fn render_main_menu(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let entity = cx.entity().downgrade();
-        let appearance = self.appearance;
+        let appearance = self.prefs.appearance;
         Button::new("main-menu").ghost().small().icon(IconName::EllipsisVertical).tooltip("More").dropdown_menu(
             move |menu, _, _| {
                 let e = entity.clone();

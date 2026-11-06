@@ -451,6 +451,7 @@ fn demo_reaction(
             vec![]
         }
         BackendCommand::Link { .. }
+        | BackendCommand::SetReadReceipts(_)
         | BackendCommand::Typing { .. }
         | BackendCommand::SyncContacts
         | BackendCommand::Shutdown => vec![],

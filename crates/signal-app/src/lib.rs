@@ -6,6 +6,7 @@ pub mod assets;
 pub mod attachments;
 mod chat_actions;
 pub mod emoji;
+pub mod settings;
 pub mod theme;
 pub mod views;
 

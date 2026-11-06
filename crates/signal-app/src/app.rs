@@ -147,7 +147,7 @@ pub struct SignalApp {
     pub(crate) contacts: Vec<Conversation>,
     pub(crate) message_results: Vec<Message>,
     pub(crate) loading_history: bool,
-    pub(crate) appearance: Appearance,
+    pub(crate) prefs: crate::settings::Preferences,
     typing_sent: Option<(ConversationId, Instant)>,
     typing_generation: u64,
     focus_override: Option<bool>,
@@ -228,7 +228,11 @@ impl SignalApp {
                 &composer,
                 window,
                 |this, _, ev: &InputEvent, window, cx| match ev {
-                    InputEvent::PressEnter { shift: false, .. } => this.send_composed(window, cx),
+                    InputEvent::PressEnter { shift, secondary } => {
+                        if *secondary || (this.prefs.enter_sends && !*shift) {
+                            this.send_composed(window, cx)
+                        }
+                    }
                     InputEvent::Change => this.on_composer_changed(window, cx),
                     InputEvent::Blur => this.save_draft(cx),
                     _ => {}
@@ -242,7 +246,7 @@ impl SignalApp {
                 cx.notify();
             }),
             cx.observe_window_appearance(window, |this, window, cx| {
-                if this.appearance == Appearance::System {
+                if this.prefs.appearance == Appearance::System {
                     apply_appearance(Appearance::System, Some(window), cx);
                     cx.notify();
                 }
@@ -275,7 +279,7 @@ impl SignalApp {
             contacts: Vec::new(),
             message_results: Vec::new(),
             loading_history: false,
-            appearance: Appearance::System,
+            prefs: crate::settings::Preferences::default(),
             typing_sent: None,
             typing_generation: 0,
             focus_override: None,
@@ -473,8 +477,11 @@ impl SignalApp {
             self.commands
                 .send(BackendCommand::MarkRead { conversation: conv });
         }
-        if let Some(n) = fx.notify {
-            self.notifier.notify(&n.title, &n.body);
+        if let Some(n) = fx.notify
+            && self.prefs.notifications
+        {
+            let (title, body) = self.prefs.notification_content.redact(&n.title, &n.body);
+            self.notifier.notify(&title, &body);
         }
         if fx.timeline_changed {
             self.rebuild_timeline(TimelineChange::Update, cx);
@@ -829,8 +836,8 @@ impl SignalApp {
             return;
         };
         let empty = self.composer.read(cx).value().trim().is_empty();
-        if self.is_note_to_self(&conversation) {
-            return; // nobody to show a typing indicator to
+        if self.is_note_to_self(&conversation) || !self.prefs.typing_indicators {
+            return; // nobody to show it to, or the user turned typing indicators off
         }
         if empty {
             self.stop_typing();
@@ -1098,10 +1105,51 @@ impl SignalApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let appearance = Appearance::load(&path);
+        let prefs = crate::settings::Preferences::load(&path);
         self.settings_path = Some(path);
-        self.appearance = appearance;
-        apply_appearance(appearance, Some(window), cx);
+        self.apply_prefs(prefs, window, cx);
+    }
+
+    pub fn prefs(&self) -> &crate::settings::Preferences {
+        &self.prefs
+    }
+
+    /// Applies (and persists) new preferences.
+    pub fn apply_prefs(
+        &mut self,
+        prefs: crate::settings::Preferences,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        apply_appearance(prefs.appearance, Some(window), cx);
+        let enter_sends = prefs.enter_sends;
+        self.composer
+            .update(cx, |c, cx| c.set_submit_on_enter(enter_sends, cx));
+        if prefs.read_receipts != self.prefs.read_receipts || self.settings_path.is_none() {
+            self.commands
+                .send(BackendCommand::SetReadReceipts(prefs.read_receipts));
+        }
+        if !prefs.typing_indicators {
+            self.stop_typing();
+        }
+        self.prefs = prefs;
+        if let Some(path) = &self.settings_path
+            && let Err(e) = self.prefs.save(path)
+        {
+            tracing::warn!(%e, "failed to save settings");
+        }
+        cx.notify();
+    }
+
+    pub fn update_prefs(
+        &mut self,
+        f: impl FnOnce(&mut crate::settings::Preferences),
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let mut prefs = self.prefs.clone();
+        f(&mut prefs);
+        self.apply_prefs(prefs, window, cx);
     }
 
     pub fn set_appearance(
@@ -1110,14 +1158,7 @@ impl SignalApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.appearance = appearance;
-        apply_appearance(appearance, Some(window), cx);
-        if let Some(path) = &self.settings_path
-            && let Err(e) = appearance.save(path)
-        {
-            tracing::warn!(%e, "failed to save settings");
-        }
-        cx.notify();
+        self.update_prefs(|p| p.appearance = appearance, window, cx);
     }
 
     pub fn is_dark(&self, cx: &gpui_kit::App) -> bool {

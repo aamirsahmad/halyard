@@ -65,6 +65,8 @@ pub enum BackendCommand {
         conversation: ConversationId,
         started: bool,
     },
+    /// Whether to send read receipts (a privacy preference).
+    SetReadReceipts(bool),
     /// Ask the primary device for a fresh contact list.
     SyncContacts,
     /// Unlink this device and wipe local data.

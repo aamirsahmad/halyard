@@ -162,6 +162,7 @@ struct Worker {
     internal_rx: Option<mpsc::UnboundedReceiver<Internal>>,
     last_sent_at: Millis,
     profile_requested: HashSet<Uuid>,
+    read_receipts: bool,
 }
 
 /// Derives the public group identifier (as used in typing messages) from a master key.
@@ -219,6 +220,7 @@ impl Worker {
             internal_rx: Some(internal_rx),
             last_sent_at: 0,
             profile_requested: HashSet::new(),
+            read_receipts: true,
         })
     }
 
@@ -737,6 +739,7 @@ impl Worker {
                 });
             }
             BackendCommand::MarkRead { conversation } => self.mark_read(conversation),
+            BackendCommand::SetReadReceipts(on) => self.read_receipts = on,
             BackendCommand::Typing {
                 conversation,
                 started,
@@ -901,6 +904,14 @@ impl Worker {
         let (Some(manager), Some(me)) = (self.manager.clone(), self.me) else {
             return;
         };
+        // no receipts while the user hasn't accepted a message request
+        let accepted = self
+            .db
+            .conversation(&conversation)
+            .ok()
+            .flatten()
+            .is_none_or(|c| c.accepted);
+        let send_receipts = self.read_receipts && accepted;
         let mut by_author: HashMap<Uuid, Vec<u64>> = HashMap::new();
         for m in &unread {
             by_author
@@ -911,7 +922,7 @@ impl Worker {
         let now = self.next_ts() as u64;
         spawn_local(async move {
             let mut manager = manager;
-            for (author, timestamps) in &by_author {
+            for (author, timestamps) in by_author.iter().filter(|_| send_receipts) {
                 let receipt = ReceiptMessage {
                     r#type: Some(receipt_message::Type::Read as i32),
                     timestamp: timestamps.clone(),
