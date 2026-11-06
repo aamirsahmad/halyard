@@ -150,7 +150,7 @@ pub struct SignalApp {
     typing_generation: u64,
     focus_override: Option<bool>,
     settings_path: Option<PathBuf>,
-    attachments: Rc<crate::attachments::AttachmentAccess>,
+    pub(crate) attachments: Rc<crate::attachments::AttachmentAccess>,
     pub(crate) focus: FocusHandle,
     _subscriptions: Vec<Subscription>,
 }
@@ -246,6 +246,21 @@ impl SignalApp {
         };
         this.state.window_active = this.window_is_active(window);
         this.reload_names();
+        // repaint disappearing-message countdowns once a second
+        cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor().timer(Duration::from_secs(1)).await;
+                let alive = this.update(cx, |this, cx| {
+                    if this.state.messages().iter().any(|m| m.expires_at.is_some()) {
+                        cx.notify();
+                    }
+                });
+                if alive.is_err() {
+                    break;
+                }
+            }
+        })
+        .detach();
         this
     }
 

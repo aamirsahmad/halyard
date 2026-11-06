@@ -64,6 +64,15 @@ impl AttachmentAccess {
         image
     }
 
+    /// Deletes an attachment file if (and only if) it lives in our store.
+    pub fn remove_stored_file(&self, path: &str) {
+        if let Some(store) = &self.store
+            && Path::new(path).starts_with(store.dir())
+        {
+            let _ = std::fs::remove_file(path);
+        }
+    }
+
     /// Path suitable for `open_with_system`: a decrypted copy for stored
     /// attachments, the original for plaintext files.
     pub fn path_for_open(&self, path: &str, file_name: &str) -> std::io::Result<PathBuf> {

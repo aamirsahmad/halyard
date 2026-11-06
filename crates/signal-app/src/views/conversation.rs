@@ -2,7 +2,7 @@
 
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::input::Textarea;
-use gpui_kit::component::menu::{DropdownMenu as _, PopupMenuItem};
+use gpui_kit::component::menu::DropdownMenu as _;
 use gpui_kit::component::message_scroller::MessageScroller;
 use gpui_kit::component::{Icon, IconName, Sizable as _};
 use gpui_kit::prelude::FluentBuilder as _;
@@ -40,7 +40,11 @@ impl SignalApp {
             .child(self.render_header(&conv, p, cx))
             .child(self.render_timeline(p, window, cx))
             .children(self.render_typing(&conv, p))
-            .child(self.render_composer(p, cx))
+            .child(if conv.blocked || !conv.accepted {
+                self.render_request_banner(&conv, p, cx)
+            } else {
+                self.render_composer(p, cx)
+            })
             .test_support()
             .into_any_element()
     }
@@ -65,7 +69,8 @@ impl SignalApp {
                 .unwrap_or_default()
         };
         let entity = cx.entity().downgrade();
-        let (pinned, muted, archived) = (conv.pinned, conv.muted, conv.archived);
+        let menu_conv = conv.clone();
+        let note = self.is_note_to_self(&id);
         div()
             .id("conversation-header")
             .flex()
@@ -85,10 +90,15 @@ impl SignalApp {
                     .items_center()
                     .gap_3()
                     .cursor_pointer()
-                    .on_click(cx.listener(move |this, _, window, cx| this.show_details(id, window, cx)))
-                    .child(Avatar::new(id.color_seed(), conv.title.clone())
-                    .note_to_self(self.is_note_to_self(&id))
-                    .group(id.is_group()).size(px(32.)))
+                    .on_click(
+                        cx.listener(move |this, _, window, cx| this.show_details(id, window, cx)),
+                    )
+                    .child(
+                        Avatar::new(id.color_seed(), conv.title.clone())
+                            .note_to_self(self.is_note_to_self(&id))
+                            .group(id.is_group())
+                            .size(px(32.)),
+                    )
                     .child(
                         div()
                             .flex()
@@ -102,62 +112,48 @@ impl SignalApp {
                                     .child(conv.title.clone())
                                     .test_support(),
                             )
+                            .when_some(conv.expire_timer, |d, secs| {
+                                d.child(
+                                    div()
+                                        .id("header-timer")
+                                        .flex()
+                                        .items_center()
+                                        .gap_1()
+                                        .text_size(px(12.))
+                                        .text_color(p.text_secondary)
+                                        .child(Icon::new(Icons::Clock).xsmall())
+                                        .child(signal_core::timer_label(secs))
+                                        .test_support(),
+                                )
+                            })
                             .when(!subtitle.is_empty(), |d| {
-                                d.child(div().text_size(px(12.)).text_color(p.text_secondary).child(subtitle))
+                                d.child(
+                                    div()
+                                        .text_size(px(12.))
+                                        .text_color(p.text_secondary)
+                                        .child(subtitle),
+                                )
                             }),
                     )
                     .test_support(),
             )
             .child(
-                Button::new("conversation-menu").ghost().small().icon(IconName::Ellipsis).tooltip("More").dropdown_menu(
-                    move |menu, _, _| {
-                        let action = |label: &'static str, f: fn(&mut SignalApp, &mut Context<SignalApp>)| {
-                            let e = entity.clone();
-                            PopupMenuItem::new(label).on_click(move |_, _, cx| {
-                                let _ = e.update(cx, f);
-                            })
-                        };
-                        let toggle = move |this: &mut SignalApp, cx: &mut Context<SignalApp>, which: u8| match which {
-                            0 => this.toggle_pinned(id, cx),
-                            1 => this.toggle_muted(id, cx),
-                            _ => this.toggle_archived(id, cx),
-                        };
-                        let e1 = entity.clone();
-                        let e2 = entity.clone();
-                        let e3 = entity.clone();
-                        menu.item(
-                            PopupMenuItem::new(if pinned { "Unpin chat" } else { "Pin chat" })
-                                .icon(Icon::new(if pinned { Icons::PinOff } else { Icons::Pin }))
-                                .on_click(move |_, _, cx| {
-                                    let _ = e1.update(cx, |this, cx| toggle(this, cx, 0));
-                                }),
+                Button::new("conversation-menu")
+                    .ghost()
+                    .small()
+                    .icon(IconName::Ellipsis)
+                    .tooltip("More")
+                    .dropdown_menu(move |menu, window, cx| {
+                        crate::views::menus::conversation_menu(
+                            menu,
+                            entity.clone(),
+                            &menu_conv,
+                            note,
+                            crate::views::menus::MenuPlace::Header,
+                            window,
+                            cx,
                         )
-                        .item(
-                            PopupMenuItem::new(if muted { "Unmute notifications" } else { "Mute notifications" })
-                                .icon(Icon::new(Icons::BellOff))
-                                .on_click(move |_, _, cx| {
-                                    let _ = e2.update(cx, |this, cx| toggle(this, cx, 1));
-                                }),
-                        )
-                        .item(
-                            PopupMenuItem::new(if archived { "Unarchive" } else { "Archive" })
-                                .icon(Icon::new(if archived { Icons::ArchiveRestore } else { Icons::Archive }))
-                                .on_click(move |_, _, cx| {
-                                    let _ = e3.update(cx, |this, cx| toggle(this, cx, 2));
-                                }),
-                        )
-                        .separator()
-                        .item({
-                            let e = entity.clone();
-                            PopupMenuItem::new(if id.is_group() { "Group members" } else { "Chat details" })
-                                .icon(Icon::new(Icons::Users))
-                                .on_click(move |_, window, cx| {
-                                    let _ = e.update(cx, |this, cx| this.show_details(id, window, cx));
-                                })
-                        })
-                        .item(action("Close chat", |this, cx| this.close_conversation(cx)))
-                    },
-                ),
+                    }),
             )
             .test_support()
             .into_any_element()
@@ -202,6 +198,80 @@ impl SignalApp {
                 .with_jump_button_label("Jump to latest")
                 .size_full(),
             )
+            .test_support()
+            .into_any_element()
+    }
+
+    /// Shown instead of the composer for message requests and blocked chats.
+    fn render_request_banner(
+        &self,
+        conv: &Conversation,
+        p: &Palette,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let id = conv.id;
+        let (text, buttons): (String, Vec<AnyElement>) = if conv.blocked {
+            (
+                format!(
+                    "You blocked {}. You won't receive their messages.",
+                    conv.title
+                ),
+                vec![
+                    Button::new("unblock")
+                        .primary()
+                        .label("Unblock")
+                        .on_click(
+                            cx.listener(move |this, _, _, cx| this.set_blocked(id, false, cx)),
+                        )
+                        .into_any_element(),
+                ],
+            )
+        } else {
+            (
+                format!(
+                    "{} wants to message you. Accept to let them see that you've read their messages and to reply.",
+                    conv.title
+                ),
+                vec![
+                    Button::new("request-delete")
+                        .outline()
+                        .label("Delete")
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            this.confirm_delete_conversation(id, window, cx)
+                        }))
+                        .into_any_element(),
+                    Button::new("request-block")
+                        .outline()
+                        .label("Block")
+                        .on_click(cx.listener(move |this, _, _, cx| this.block_and_delete(id, cx)))
+                        .into_any_element(),
+                    Button::new("request-accept")
+                        .primary()
+                        .label("Accept")
+                        .on_click(cx.listener(move |this, _, _, cx| this.accept_request(id, cx)))
+                        .into_any_element(),
+                ],
+            )
+        };
+        div()
+            .id("request-banner")
+            .flex()
+            .flex_col()
+            .flex_none()
+            .items_center()
+            .gap_3()
+            .px_6()
+            .py_4()
+            .border_t_1()
+            .border_color(p.border)
+            .child(
+                div()
+                    .text_center()
+                    .text_size(px(13.))
+                    .text_color(p.text_secondary)
+                    .child(text),
+            )
+            .child(div().flex().gap_2().children(buttons))
             .test_support()
             .into_any_element()
     }

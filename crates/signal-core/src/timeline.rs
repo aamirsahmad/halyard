@@ -44,7 +44,9 @@ pub fn build_timeline(
         let prev = i.checked_sub(1).map(|p| &messages[p]);
         let next = messages.get(i + 1);
         let groups_with = |a: &Message, b: &Message| {
-            a.author == b.author
+            !a.is_notice()
+                && !b.is_notice()
+                && a.author == b.author
                 && a.outgoing == b.outgoing
                 && (b.sent_at - a.sent_at).abs() <= GROUPING_WINDOW_MS
                 && day_of(a.sent_at) == day_of(b.sent_at)

@@ -15,8 +15,8 @@ use signal_backend::demo::{
     DEMO_ALICE, DEMO_BOB, DEMO_CAROL, DEMO_DAVE, DEMO_GROUP, DEMO_ME, demo_account, seed,
 };
 use signal_core::{
-    AccountState, BackendCommand, BackendEvent, ConversationId, Database, Message, MessageStatus,
-    now_millis,
+    AccountState, BackendCommand, BackendEvent, ConversationId, Database, Message, MessageKind,
+    MessageStatus, now_millis,
 };
 
 struct Harness {

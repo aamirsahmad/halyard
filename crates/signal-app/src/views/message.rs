@@ -11,7 +11,9 @@ use gpui_kit::{
 };
 use signal_core::format::{file_size, message_time};
 use signal_core::timeline::{TimelineItem, TimelineMessage};
-use signal_core::{Attachment, Message, MessageStatus, avatar, now_millis};
+use signal_core::{
+    Attachment, Message, MessageKind, MessageStatus, avatar, now_millis, timer_notice, timer_short,
+};
 
 use crate::app::{QUICK_REACTIONS, SignalApp, TimelineData};
 use crate::assets::Icons;
@@ -66,6 +68,29 @@ fn render_message(
     p: &Palette,
     app: WeakEntity<SignalApp>,
 ) -> AnyElement {
+    if let MessageKind::TimerChanged { secs } = &m.kind {
+        let who = if m.outgoing {
+            None
+        } else {
+            data.names
+                .get(&m.author)
+                .cloned()
+                .or(Some("Someone".into()))
+        };
+        return div()
+            .id(ElementId::Name(format!("row-{}", m.id).into()))
+            .flex()
+            .justify_center()
+            .items_center()
+            .gap_1()
+            .py_2()
+            .text_size(px(12.))
+            .text_color(p.text_secondary)
+            .child(Icon::new(Icons::Clock).xsmall())
+            .child(timer_notice(who.as_deref(), *secs))
+            .test_support()
+            .into_any_element();
+    }
     let outgoing = m.outgoing;
     let show_avatar_column = data.is_group && !outgoing;
     let author_name = data
@@ -200,6 +225,9 @@ fn render_message(
             .when(m.edited_at.is_some() && !m.deleted, |d| d.child("Edited"))
             .when_some(m.expires_in_secs, |d, _| {
                 d.child(Icon::new(Icons::Clock).xsmall())
+                    .when_some(m.expires_at, |d, at| {
+                        d.child(timer_short(at - now_millis()))
+                    })
             })
             .child(message_time(m.sent_at, now_millis()))
             .when(outgoing, |d| d.child(status_icon(m.status, meta))),

@@ -2,7 +2,7 @@
 
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::input::Input;
-use gpui_kit::component::menu::{DropdownMenu as _, PopupMenuItem};
+use gpui_kit::component::menu::{ContextMenuExt as _, DropdownMenu as _, PopupMenuItem};
 use gpui_kit::component::{Icon, IconName, Sizable as _};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
@@ -290,7 +290,11 @@ impl SignalApp {
             .filter(|d| !d.trim().is_empty())
             .filter(|_| !selected);
         let typing = !self.state.typing_in(&id).is_empty();
-        let preview: AnyElement = if typing {
+        let preview: AnyElement = if conv.blocked {
+            div().italic().child("Blocked").into_any_element()
+        } else if !conv.accepted {
+            div().italic().child("Message request").into_any_element()
+        } else if typing {
             div().italic().child("typing…").into_any_element()
         } else if let Some(d) = draft {
             div()
@@ -311,7 +315,7 @@ impl SignalApp {
                 .into_any_element()
         };
 
-        div()
+        let row = div()
             .id(conversation_element_id(&id))
             .flex()
             .items_center()
@@ -348,7 +352,7 @@ impl SignalApp {
                                     .flex_1()
                                     .min_w_0()
                                     .truncate()
-                                    .font_weight(if unread > 0 {
+                                    .font_weight(if conv.has_unread() {
                                         FontWeight::BOLD
                                     } else {
                                         FontWeight::SEMIBOLD
@@ -386,6 +390,17 @@ impl SignalApp {
                                     .text_color(if unread > 0 { p.text } else { p.text_secondary })
                                     .child(preview),
                             )
+                            .when(unread == 0 && conv.marked_unread, |d| {
+                                d.child(
+                                    div()
+                                        .id(SharedString::from(format!("marked-unread-{id}")))
+                                        .flex_none()
+                                        .size(px(12.))
+                                        .rounded_full()
+                                        .bg(p.badge)
+                                        .test_support(),
+                                )
+                            })
                             .when(unread > 0, |d| {
                                 d.child(
                                     div()
@@ -415,7 +430,24 @@ impl SignalApp {
                             }),
                     ),
             )
-            .test_support()
+            .test_support();
+        let app = cx.entity().downgrade();
+        let menu_conv = conv.clone();
+        let note = self.is_note_to_self(&id);
+        div()
+            .id(SharedString::from(format!("conversation-menu-{id}")))
+            .child(row)
+            .context_menu(move |menu, window, cx| {
+                crate::views::menus::conversation_menu(
+                    menu,
+                    app.clone(),
+                    &menu_conv,
+                    note,
+                    crate::views::menus::MenuPlace::ChatList,
+                    window,
+                    cx,
+                )
+            })
             .into_any_element()
     }
 
