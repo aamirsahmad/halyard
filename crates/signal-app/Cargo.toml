@@ -5,6 +5,10 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[lib]
+name = "signal_app"
+path = "src/lib.rs"
+
 [[bin]]
 name = "signal-gpui"
 path = "src/main.rs"
@@ -19,7 +23,19 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 directories.workspace = true
 qrcode.workspace = true
+futures.workspace = true
+uuid.workspace = true
+notify-rust = "4"
 
 [dev-dependencies]
 gpui-kit = { workspace = true, features = ["test-support"] }
 tempfile.workspace = true
+image = { version = "0.25", default-features = false, features = ["png"] }
+
+[[test]]
+name = "rendering"
+# Needs GPUI's offscreen renderer (Metal on macOS, WGPU on Linux).
+# Run explicitly: `cargo test -p signal-app --test rendering`.
+# Set SCREENSHOT_DIR to save PNGs of each screen.
+test = false
+harness = false

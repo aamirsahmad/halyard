@@ -8172,13 +8172,17 @@ dependencies = [
  "anyhow",
  "chrono",
  "directories",
+ "futures",
  "gpui-kit",
+ "image",
+ "notify-rust",
  "qrcode",
  "signal-backend",
  "signal-core",
  "tempfile",
  "tracing",
  "tracing-subscriber",
+ "uuid",
 ]
 
 [[package]]
