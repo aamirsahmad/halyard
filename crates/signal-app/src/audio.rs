@@ -220,3 +220,188 @@ mod tests {
         assert!(!p.is_active());
     }
 }
+
+/// Sample rate of recorded voice notes (speech quality, ~1.9 MB/min as WAV).
+pub const VOICE_NOTE_RATE: u32 = 16_000;
+
+/// Linear resampling of mono samples from `from` Hz to `to` Hz.
+pub fn resample(samples: &[f32], from: u32, to: u32) -> Vec<f32> {
+    if from == to || samples.is_empty() || from == 0 {
+        return samples.to_vec();
+    }
+    let ratio = from as f64 / to as f64;
+    let n = (samples.len() as f64 / ratio).floor() as usize;
+    (0..n)
+        .map(|i| {
+            let pos = i as f64 * ratio;
+            let i0 = pos.floor() as usize;
+            let i1 = (i0 + 1).min(samples.len() - 1);
+            let t = (pos - i0 as f64) as f32;
+            samples[i0] * (1. - t) + samples[i1] * t
+        })
+        .collect()
+}
+
+/// 16-bit PCM mono WAV.
+pub fn encode_wav(samples: &[f32], rate: u32) -> Vec<u8> {
+    let data_len = (samples.len() * 2) as u32;
+    let mut v = Vec::with_capacity(44 + data_len as usize);
+    v.extend_from_slice(b"RIFF");
+    v.extend_from_slice(&(36 + data_len).to_le_bytes());
+    v.extend_from_slice(b"WAVEfmt ");
+    v.extend_from_slice(&16u32.to_le_bytes());
+    v.extend_from_slice(&1u16.to_le_bytes()); // PCM
+    v.extend_from_slice(&1u16.to_le_bytes()); // mono
+    v.extend_from_slice(&rate.to_le_bytes());
+    v.extend_from_slice(&(rate * 2).to_le_bytes());
+    v.extend_from_slice(&2u16.to_le_bytes());
+    v.extend_from_slice(&16u16.to_le_bytes());
+    v.extend_from_slice(b"data");
+    v.extend_from_slice(&data_len.to_le_bytes());
+    for s in samples {
+        v.extend_from_slice(&((s.clamp(-1., 1.) * i16::MAX as f32) as i16).to_le_bytes());
+    }
+    v
+}
+
+/// Records from the default microphone until finished or cancelled.
+pub struct Recorder {
+    stop: mpsc::Sender<()>,
+    samples: Arc<Mutex<Vec<f32>>>,
+    rate: u32,
+    started: std::time::Instant,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+
+impl Recorder {
+    pub fn start() -> Result<Self, String> {
+        use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+        let samples: Arc<Mutex<Vec<f32>>> = Arc::default();
+        let (ready_tx, ready_rx) = mpsc::channel::<Result<u32, String>>();
+        let (stop, stop_rx) = mpsc::channel::<()>();
+        let sink = samples.clone();
+        let thread = std::thread::Builder::new()
+            .name("recorder".into())
+            .spawn(move || {
+                let setup = (|| -> Result<(cpal::Stream, u32), String> {
+                    let device = cpal::default_host()
+                        .default_input_device()
+                        .ok_or("No microphone found")?;
+                    let config = device
+                        .default_input_config()
+                        .map_err(|e| format!("Microphone unavailable: {e}"))?;
+                    let channels = config.channels().max(1) as usize;
+                    let rate = config.sample_rate();
+                    let err = |e: cpal::Error| tracing::warn!(%e, "recording error");
+                    macro_rules! stream {
+                        ($t:ty) => {{
+                            let sink = sink.clone();
+                            device.build_input_stream::<$t, _, _>(
+                                config.config(),
+                                move |data: &[$t], _: &_| {
+                                    let mut out = sink.lock().unwrap();
+                                    for frame in data.chunks(channels) {
+                                        let sum: f32 = frame
+                                            .iter()
+                                            .map(|s| cpal::Sample::to_sample::<f32>(*s))
+                                            .sum();
+                                        out.push(sum / channels as f32);
+                                    }
+                                },
+                                err,
+                                None,
+                            )
+                        }};
+                    }
+                    let stream = match config.sample_format() {
+                        cpal::SampleFormat::F32 => stream!(f32),
+                        cpal::SampleFormat::I16 => stream!(i16),
+                        cpal::SampleFormat::U16 => stream!(u16),
+                        cpal::SampleFormat::I32 => stream!(i32),
+                        other => return Err(format!("Unsupported microphone format {other:?}")),
+                    }
+                    .map_err(|e| format!("Couldn't open the microphone: {e}"))?;
+                    stream
+                        .play()
+                        .map_err(|e| format!("Couldn't start recording: {e}"))?;
+                    Ok((stream, rate))
+                })();
+                match setup {
+                    Ok((stream, rate)) => {
+                        let _ = ready_tx.send(Ok(rate));
+                        let _ = stop_rx.recv(); // keep the stream alive until stopped
+                        drop(stream);
+                    }
+                    Err(e) => {
+                        let _ = ready_tx.send(Err(e));
+                    }
+                }
+            })
+            .map_err(|e| e.to_string())?;
+        let rate = ready_rx
+            .recv_timeout(Duration::from_secs(5))
+            .map_err(|_| "Timed out opening the microphone".to_string())??;
+        Ok(Self {
+            stop,
+            samples,
+            rate,
+            started: std::time::Instant::now(),
+            thread: Some(thread),
+        })
+    }
+
+    pub fn elapsed(&self) -> Duration {
+        self.started.elapsed()
+    }
+
+    fn halt(&mut self) {
+        let _ = self.stop.send(());
+        if let Some(t) = self.thread.take() {
+            let _ = t.join();
+        }
+    }
+
+    /// Stops and returns the recording as a 16 kHz mono WAV.
+    pub fn finish(mut self) -> Vec<u8> {
+        self.halt();
+        let samples = std::mem::take(&mut *self.samples.lock().unwrap());
+        encode_wav(
+            &resample(&samples, self.rate, VOICE_NOTE_RATE),
+            VOICE_NOTE_RATE,
+        )
+    }
+
+    pub fn cancel(mut self) {
+        self.halt();
+    }
+}
+
+impl Drop for Recorder {
+    fn drop(&mut self) {
+        self.halt();
+    }
+}
+
+#[cfg(test)]
+mod recording_tests {
+    use super::*;
+
+    #[test]
+    fn resampling_halves_and_keeps_shape() {
+        let s: Vec<f32> = (0..48).map(|i| i as f32).collect();
+        let r = resample(&s, 48_000, 16_000);
+        assert_eq!(r.len(), 16);
+        assert_eq!(r[1], 3.0);
+        assert_eq!(resample(&s, 16_000, 16_000), s);
+        assert!(resample(&[], 48_000, 16_000).is_empty());
+    }
+
+    #[test]
+    fn encoded_wav_decodes_with_expected_duration() {
+        let one_second = vec![0.25f32; VOICE_NOTE_RATE as usize];
+        let wav = encode_wav(&one_second, VOICE_NOTE_RATE);
+        assert_eq!(wav.len(), 44 + 2 * VOICE_NOTE_RATE as usize);
+        let d = clip_duration(wav).unwrap();
+        assert!((d.as_millis() as i64 - 1000).abs() <= 5, "{d:?}");
+    }
+}

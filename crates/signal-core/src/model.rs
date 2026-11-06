@@ -118,6 +118,10 @@ pub enum RangeKind {
     Mention(Uuid),
 }
 
+/// File-name prefix of recorded voice notes; such attachments are sent with
+/// the voice-note flag so other clients show them as voice messages.
+pub const VOICE_NOTE_PREFIX: &str = "voice-message-";
+
 /// Quote text used for replies to stories.
 pub const STORY_REPLY_QUOTE: &str = "Story";
 

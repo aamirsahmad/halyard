@@ -49,12 +49,12 @@ Legend: ✅ done · 🚧 partial · ⬜ not yet · ✖ not supported (reason giv
 | Placeholder for unsupported message types (payments, polls, gift badges) | ✅ |
 | Image viewer (lightbox) with Open and Save As | ✅ |
 | Search within a conversation | ✅ |
-| Message requests for unknown senders (accept / block / delete) | ✅ |
+| Message requests for unknown senders (accept / block / delete) | 🚧 detected from the contact sync; presage doesn't expose Signal's accepted state |
 | Block / unblock contacts | ✅ |
 | Safety number view | ✅ |
 | Leave group | ✖ presage has no group-change (membership) API yet |
 | Voice notes and audio attachments: in-app playback with progress | ✅ |
-| Recording voice notes | ✖ needs an AAC encoder; not available in pure Rust yet |
+| Recording voice notes (mic button when the composer is empty) | 🚧 sent as 16 kHz WAV with the voice-note flag; Signal's apps record AAC |
 
 ## Composer
 
@@ -79,5 +79,6 @@ Legend: ✅ done · 🚧 partial · ⬜ not yet · ✖ not supported (reason giv
 | Profile / linked-device info, unlink | ✅ |
 | Zoom in / out / actual size (⌘/Ctrl + / − / 0), saved in preferences | ✅ |
 | Stories: view contacts' text and photo stories (24 h), unviewed rings, viewer | ✅ |
-| Posting your own stories, replying to stories | ⬜ |
+| Replying to stories (text or emoji) | ✅ |
+| Posting your own stories | ✖ needs story distribution-list sending, not in presage |
 | Voice / video calls | out of scope |

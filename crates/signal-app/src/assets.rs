@@ -20,6 +20,7 @@ gpui_kit::assets::icon_assets!(
         Lock,
         LogOut,
         MessageCircle,
+        Mic,
         NotebookPen,
         Paperclip,
         Pin,

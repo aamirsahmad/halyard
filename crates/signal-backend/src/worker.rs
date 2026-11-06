@@ -1195,13 +1195,17 @@ async fn upload(
             .await
             .map_err(|e| format!("{}: {e}", path.display()))?;
         let a = local_attachment(path);
+        let voice_note = a
+            .file_name
+            .as_deref()
+            .is_some_and(|n| n.starts_with(signal_core::VOICE_NOTE_PREFIX));
         specs.push((
             AttachmentSpec {
                 content_type: a.content_type,
                 length: bytes.len(),
                 file_name: a.file_name,
                 preview: None,
-                voice_note: None,
+                voice_note: voice_note.then_some(true),
                 borderless: None,
                 width: None,
                 height: None,

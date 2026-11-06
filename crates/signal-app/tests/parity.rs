@@ -642,3 +642,19 @@ fn reply_to_a_story(cx: &mut TestAppContext) {
         vec!["❤️".to_string(), "See you there!".to_string()]
     );
 }
+
+#[gpui_kit::test]
+fn mic_button_when_composer_is_empty(cx: &mut TestAppContext) {
+    let h = setup(cx);
+    with_app(cx, &h, |a, w, cx| a.open_conversation(ConversationId::Direct(DEMO_BOB), w, cx));
+    with_window(cx, &h, |w, _| {
+        assert!(w.try_find("record").is_some(), "mic shown for an empty composer");
+        assert!(w.try_find("send").is_none());
+    });
+    with_window(cx, &h, |w, cx| w.input("hi", cx));
+    with_window(cx, &h, |w, _| {
+        assert!(w.try_find("send").is_some());
+        assert!(w.try_find("record").is_none());
+    });
+    cx.update(|cx| assert!(!h.app.read(cx).is_recording()));
+}

@@ -64,6 +64,16 @@ impl AttachmentAccess {
         image
     }
 
+    /// Writes a new local file (e.g. a recorded voice note) into the private
+    /// scratch directory, which is cleared on every start.
+    pub fn write_scratch(&self, name: &str, bytes: &[u8]) -> std::io::Result<PathBuf> {
+        let dir = self.open_dir.clone().unwrap_or_else(std::env::temp_dir);
+        std::fs::create_dir_all(&dir)?;
+        let path = dir.join(name);
+        std::fs::write(&path, bytes)?;
+        Ok(path)
+    }
+
     /// Decrypted bytes of an attachment file.
     pub fn bytes(&self, path: &str) -> std::io::Result<Vec<u8>> {
         self.read(Path::new(path))

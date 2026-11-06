@@ -8355,6 +8355,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "chrono",
+ "cpal",
  "directories",
  "futures",
  "gpui-kit",

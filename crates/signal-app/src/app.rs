@@ -161,6 +161,7 @@ pub struct SignalApp {
     pub(crate) audio: Rc<crate::audio::AudioPlayer>,
     pub(crate) stories: Vec<signal_core::Story>,
     pub(crate) story_reply: Entity<InputState>,
+    pub(crate) recorder: Option<crate::audio::Recorder>,
     audio_was_active: bool,
     pub(crate) composer_emoji: Entity<crate::views::emoji_picker::EmojiPicker>,
     pub(crate) reaction_picker: Entity<crate::views::emoji_picker::EmojiPicker>,
@@ -321,6 +322,7 @@ impl SignalApp {
             audio: Rc::default(),
             stories: Vec::new(),
             story_reply,
+            recorder: None,
             audio_was_active: false,
             composer_emoji,
             reaction_picker,
@@ -345,7 +347,7 @@ impl SignalApp {
                     let audio = this.audio.is_active();
                     let countdown = tick.is_multiple_of(4)
                         && this.state.messages().iter().any(|m| m.expires_at.is_some());
-                    if audio || countdown || this.audio_was_active {
+                    if audio || countdown || this.audio_was_active || this.recorder.is_some() {
                         cx.notify();
                     }
                     this.audio_was_active = audio;
@@ -638,6 +640,66 @@ impl SignalApp {
         self.conv_search_open = false;
         self.conv_search_results.clear();
         self.scroll_to_message(message.author, message.sent_at, window, cx);
+        cx.notify();
+    }
+
+    pub fn is_recording(&self) -> bool {
+        self.recorder.is_some()
+    }
+
+    /// Starts recording a voice note from the microphone.
+    pub fn start_recording(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.recorder.is_some() || self.state.selected().is_none() {
+            return;
+        }
+        self.audio.stop();
+        match crate::audio::Recorder::start() {
+            Ok(r) => self.recorder = Some(r),
+            Err(e) => window.push_notification(Notification::error(e), cx),
+        }
+        cx.notify();
+    }
+
+    pub fn cancel_recording(&mut self, cx: &mut Context<Self>) {
+        if let Some(r) = self.recorder.take() {
+            r.cancel();
+        }
+        cx.notify();
+    }
+
+    /// Stops recording and sends the voice note.
+    pub fn send_recording(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let (Some(r), Some(conversation)) = (self.recorder.take(), self.state.selected().copied())
+        else {
+            return;
+        };
+        if r.elapsed() < Duration::from_millis(500) {
+            r.cancel();
+            window.push_notification(
+                Notification::info("Hold on a little longer to record a voice message"),
+                cx,
+            );
+            cx.notify();
+            return;
+        }
+        let wav = r.finish();
+        let name = format!(
+            "{}{}.wav",
+            signal_core::VOICE_NOTE_PREFIX,
+            signal_core::now_millis()
+        );
+        match self.attachments.write_scratch(&name, &wav) {
+            Ok(path) => self.commands.send(BackendCommand::SendText {
+                conversation,
+                body: String::new(),
+                quote: None,
+                attachments: vec![path],
+            }),
+            Err(e) => window.push_notification(
+                Notification::error(format!("Couldn't save the recording: {e}")),
+                cx,
+            ),
+        }
         cx.notify();
     }
 

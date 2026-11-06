@@ -582,8 +582,43 @@ impl SignalApp {
             .children(reply)
             .children(editing)
             .children(attachments)
-            .child(
-                div()
+            .child(match self.recorder.as_ref().map(|r| r.elapsed()) {
+                Some(elapsed) => div()
+                    .id("recording-bar")
+                    .flex()
+                    .items_center()
+                    .gap_3()
+                    .mx_4()
+                    .mt_2()
+                    .px_4()
+                    .py_2()
+                    .rounded(rem_px(18.))
+                    .bg(p.input_bg)
+                    .child(div().size(rem_px(10.)).rounded_full().bg(p.danger))
+                    .child(div().flex_1().child(format!(
+                        "Recording… {}",
+                        crate::audio::format_clock(elapsed)
+                    )))
+                    .child(
+                        Button::new("recording-cancel")
+                            .ghost()
+                            .small()
+                            .label("Cancel")
+                            .on_click(cx.listener(|this, _, _, cx| this.cancel_recording(cx))),
+                    )
+                    .child(
+                        Button::new("recording-send")
+                            .primary()
+                            .small()
+                            .icon(Icon::new(Icons::SendHorizontal))
+                            .label("Send")
+                            .on_click(
+                                cx.listener(|this, _, window, cx| this.send_recording(window, cx)),
+                            ),
+                    )
+                    .test_support()
+                    .into_any_element(),
+                None => div()
                     .flex()
                     .items_end()
                     .gap_2()
@@ -625,7 +660,7 @@ impl SignalApp {
                                     .aria_label("Message"),
                             ),
                     )
-                    .child(
+                    .child(if can_send || self.editing.is_some() {
                         Button::new("send")
                             .when(can_send, |b| b.primary())
                             .when(!can_send, |b| b.ghost())
@@ -633,9 +668,20 @@ impl SignalApp {
                             .tooltip("Send")
                             .on_click(
                                 cx.listener(|this, _, window, cx| this.send_composed(window, cx)),
-                            ),
-                    ),
-            )
+                            )
+                            .into_any_element()
+                    } else {
+                        Button::new("record")
+                            .ghost()
+                            .icon(Icon::new(Icons::Mic))
+                            .tooltip("Record voice message")
+                            .on_click(
+                                cx.listener(|this, _, window, cx| this.start_recording(window, cx)),
+                            )
+                            .into_any_element()
+                    })
+                    .into_any_element(),
+            })
             .test_support()
             .into_any_element()
     }
