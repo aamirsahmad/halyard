@@ -72,7 +72,11 @@ impl SignalApp {
                             .on_click(
                                 cx.listener(|this, _, window, cx| this.open_profile(window, cx)),
                             )
-                            .child(Avatar::new(me.as_bytes().to_vec(), "You").size(rem_px(28.)))
+                            .child(
+                                Avatar::new(me.as_bytes().to_vec(), "You")
+                                    .photo(self.photo_for(&ConversationId::Direct(me)))
+                                    .size(rem_px(28.)),
+                            )
                             .test_support(),
                     )
                 })
@@ -375,6 +379,7 @@ impl SignalApp {
             )
             .child(
                 Avatar::new(id.color_seed(), conv.title.clone())
+                    .photo(self.photo_for(&id))
                     .note_to_self(self.is_note_to_self(&id))
                     .group(id.is_group())
                     .size(rem_px(48.)),
@@ -530,6 +535,7 @@ impl SignalApp {
             )
             .child(
                 Avatar::new(conv_id.color_seed(), title.clone())
+                    .photo(self.photo_for(&conv_id))
                     .note_to_self(self.is_note_to_self(&conv_id))
                     .group(conv_id.is_group())
                     .size(rem_px(36.)),
@@ -602,6 +608,7 @@ impl SignalApp {
                     }))
                     .child(
                         Avatar::new(id.color_seed(), c.title.clone())
+                            .photo(self.photo_for(&id))
                             .note_to_self(self.is_note_to_self(&id))
                             .group(id.is_group())
                             .size(rem_px(36.)),

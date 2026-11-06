@@ -76,6 +76,16 @@ pub enum BackendCommand {
     RequestSafetyNumber {
         contact: Uuid,
     },
+    /// Fetch the photo (and about text) of a conversation if not known yet.
+    FetchAvatar {
+        conversation: ConversationId,
+    },
+    /// Update your own profile.
+    UpdateProfile {
+        given_name: String,
+        family_name: Option<String>,
+        about: Option<String>,
+    },
     /// Whether to send read receipts (a privacy preference).
     SetReadReceipts(bool),
     /// Ask the primary device for a fresh contact list.
@@ -261,6 +271,16 @@ pub enum Mutation {
     MarkStoryViewed {
         id: i64,
     },
+    /// Photo of a conversation (contact or group) was stored at `path`.
+    SetAvatar {
+        conversation: ConversationId,
+        path: Option<String>,
+    },
+    /// "About" text of a contact or description of a group.
+    SetAbout {
+        conversation: ConversationId,
+        about: Option<String>,
+    },
     /// These accounts came from the phone's contact sync: never show their
     /// chats as message requests.
     ContactsSynced {
@@ -347,7 +367,9 @@ impl Mutation {
             | Mutation::SetMuted { conversation, .. }
             | Mutation::SetMarkedUnread { conversation, .. }
             | Mutation::SetBlocked { conversation, .. }
-            | Mutation::Accept { conversation } => Some(*conversation),
+            | Mutation::Accept { conversation }
+            | Mutation::SetAvatar { conversation, .. }
+            | Mutation::SetAbout { conversation, .. } => Some(*conversation),
             Mutation::UpsertGroup { key, .. } => Some(ConversationId::Group(*key)),
             Mutation::UpsertContact(c) => Some(ConversationId::Direct(c.uuid)),
             Mutation::Receipt { .. }

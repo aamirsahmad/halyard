@@ -937,3 +937,49 @@ fn synced_contacts_are_never_message_requests() {
         .unwrap();
     assert!(ch.conversations[0].accepted);
 }
+
+#[test]
+fn avatars_and_about() {
+    let mut db = db();
+    db.apply(incoming(alice(), ALICE, 1, "hi")).unwrap();
+    let ch = db
+        .apply(Mutation::SetAvatar {
+            conversation: alice(),
+            path: Some("/a/1.sga".into()),
+        })
+        .unwrap();
+    assert_eq!(ch.conversations[0].avatar.as_deref(), Some("/a/1.sga"));
+    // replacing reports the old file for deletion; same path is a no-op
+    assert!(
+        db.apply(Mutation::SetAvatar {
+            conversation: alice(),
+            path: Some("/a/1.sga".into())
+        })
+        .unwrap()
+        .is_empty()
+    );
+    let ch = db
+        .apply(Mutation::SetAvatar {
+            conversation: alice(),
+            path: Some("/a/2.sga".into()),
+        })
+        .unwrap();
+    assert_eq!(ch.removed_files, vec!["/a/1.sga".to_string()]);
+    let ch = db
+        .apply(Mutation::SetAbout {
+            conversation: alice(),
+            about: Some("Coffee enthusiast".into()),
+        })
+        .unwrap();
+    assert_eq!(
+        ch.conversations[0].about.as_deref(),
+        Some("Coffee enthusiast")
+    );
+    let ch = db
+        .apply(Mutation::SetAbout {
+            conversation: alice(),
+            about: Some("  ".into()),
+        })
+        .unwrap();
+    assert_eq!(ch.conversations[0].about, None);
+}

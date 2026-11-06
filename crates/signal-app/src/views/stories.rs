@@ -106,6 +106,11 @@ impl SignalApp {
                             .border_color(if unviewed { p.accent } else { p.border })
                             .child(
                                 Avatar::new(author.as_bytes().to_vec(), name.clone())
+                                    .photo(
+                                        self.photo_for(&signal_core::ConversationId::Direct(
+                                            author,
+                                        )),
+                                    )
                                     .size(rem_px(40.)),
                             ),
                     )

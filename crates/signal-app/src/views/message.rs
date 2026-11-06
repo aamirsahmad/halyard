@@ -512,6 +512,11 @@ fn render_message(
         .when(show_avatar_column, |d| {
             d.child(if tm.last_in_group {
                 Avatar::new(m.author.as_bytes().to_vec(), author_name)
+                    .photo(
+                        data.photos
+                            .get(&m.author)
+                            .and_then(|p| data.attachments.image(p, "")),
+                    )
                     .size(rem_px(28.))
                     .into_any_element()
             } else {

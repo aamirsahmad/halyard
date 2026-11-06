@@ -1,11 +1,12 @@
 //! Conversation details: group members or contact info.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use gpui_kit::component::dialog::Dialog;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    ElementId, FontWeight, InteractiveElement as _, ParentElement as _,
+    ElementId, FontWeight, Image, InteractiveElement as _, ParentElement as _,
     StatefulInteractiveElement as _, Styled as _, TestSupportExt as _, div,
 };
 use signal_core::ConversationId;
@@ -15,6 +16,15 @@ use crate::theme::Palette;
 use crate::views::avatar::Avatar;
 use crate::views::rem_px;
 
+/// Photos and about text shown in the details panel.
+#[derive(Clone, Default)]
+pub struct DetailsExtras {
+    pub photo: Option<Arc<Image>>,
+    pub about: Option<String>,
+    pub member_photos: HashMap<Uuid, Arc<Image>>,
+}
+
+#[allow(clippy::too_many_arguments)]
 pub fn details_dialog(
     dialog: Dialog,
     title: &str,
@@ -22,6 +32,7 @@ pub fn details_dialog(
     members: &[(Uuid, String)],
     phones: &HashMap<Uuid, String>,
     me: Option<Uuid>,
+    extras: &DetailsExtras,
     p: &Palette,
 ) -> Dialog {
     let header = div()
@@ -32,6 +43,7 @@ pub fn details_dialog(
         .pb_3()
         .child(
             Avatar::new(id.color_seed(), title.to_string())
+                .photo(extras.photo.clone())
                 .note_to_self(me.is_some_and(|me| id == ConversationId::Direct(me)))
                 .group(id.is_group())
                 .size(rem_px(72.)),
@@ -42,6 +54,16 @@ pub fn details_dialog(
                 .font_weight(FontWeight::SEMIBOLD)
                 .child(title.to_string()),
         )
+        .when_some(extras.about.clone(), |d, about| {
+            d.child(
+                div()
+                    .id("details-about")
+                    .text_size(rem_px(13.))
+                    .text_center()
+                    .child(about)
+                    .test_support(),
+            )
+        })
         .when(id.is_group(), |d| {
             d.child(
                 div()
@@ -59,7 +81,11 @@ pub fn details_dialog(
             .items_center()
             .gap_3()
             .py_2()
-            .child(Avatar::new(uuid.as_bytes().to_vec(), name.clone()).size(rem_px(36.)))
+            .child(
+                Avatar::new(uuid.as_bytes().to_vec(), name.clone())
+                    .photo(extras.member_photos.get(uuid).cloned())
+                    .size(rem_px(36.)),
+            )
             .child(
                 div()
                     .flex()

@@ -234,6 +234,38 @@ impl SignalApp {
             return;
         };
         let app = cx.entity().downgrade();
+        // prefill the editor with what we know about ourselves
+        let me_conv = signal_core::ConversationId::Direct(info.aci);
+        let full = self
+            .db
+            .contact(&info.aci)
+            .ok()
+            .flatten()
+            .and_then(|c| c.profile_name.or(c.name))
+            .unwrap_or_default();
+        let (given, family) = match full.split_once(' ') {
+            Some((g, f)) => (g.to_string(), f.to_string()),
+            None => (full, String::new()),
+        };
+        let about = self
+            .db
+            .conversation(&me_conv)
+            .ok()
+            .flatten()
+            .and_then(|c| c.about)
+            .unwrap_or_default();
+        self.profile_given
+            .update(cx, |s, cx| s.set_value(given, window, cx));
+        self.profile_family
+            .update(cx, |s, cx| s.set_value(family, window, cx));
+        self.profile_about
+            .update(cx, |s, cx| s.set_value(about, window, cx));
+        let (given_input, family_input, about_input) = (
+            self.profile_given.clone(),
+            self.profile_family.clone(),
+            self.profile_about.clone(),
+        );
+        let photo = self.photo_for(&me_conv);
         window.open_dialog(cx, move |dialog, _, cx| {
             let p = Palette::current(cx);
             let row = |label: &'static str, value: String| {
@@ -270,6 +302,7 @@ impl SignalApp {
                                 .pb_2()
                                 .child(
                                     Avatar::new(info.aci.as_bytes().to_vec(), "You")
+                                        .photo(photo.clone())
                                         .size(rem_px(72.)),
                                 )
                                 .child(
@@ -283,6 +316,18 @@ impl SignalApp {
                                         ),
                                 ),
                         )
+                        .child(
+                            gpui_kit::component::input::Input::new(&given_input)
+                                .id("profile-given"),
+                        )
+                        .child(
+                            gpui_kit::component::input::Input::new(&family_input)
+                                .id("profile-family"),
+                        )
+                        .child(
+                            gpui_kit::component::input::Input::new(&about_input)
+                                .id("profile-about"),
+                        )
                         .child(row(
                             "Device",
                             info.device_name
@@ -294,15 +339,58 @@ impl SignalApp {
                         .test_support(),
                 )
                 .footer(
-                    div().flex().justify_end().child(
-                        Button::new("profile-unlink")
-                            .danger()
-                            .label("Unlink this device…")
-                            .on_click(move |_, window, cx| {
-                                window.close_dialog(cx);
-                                let _ = app.update(cx, |this, cx| this.confirm_unlink(window, cx));
-                            }),
-                    ),
+                    div()
+                        .flex()
+                        .justify_end()
+                        .gap_2()
+                        .child({
+                            let (app, g, f, ab) = (
+                                app.clone(),
+                                given_input.clone(),
+                                family_input.clone(),
+                                about_input.clone(),
+                            );
+                            Button::new("profile-save")
+                                .primary()
+                                .label("Save")
+                                .on_click(move |_, window, cx| {
+                                    let given = g.read(cx).value().trim().to_string();
+                                    if given.is_empty() {
+                                        window.push_notification(
+                                            gpui_kit::component::notification::Notification::error(
+                                                "A first name is required",
+                                            ),
+                                            cx,
+                                        );
+                                        return;
+                                    }
+                                    let family = Some(f.read(cx).value().trim().to_string())
+                                        .filter(|s| !s.is_empty());
+                                    let about = Some(ab.read(cx).value().trim().to_string())
+                                        .filter(|s| !s.is_empty());
+                                    let _ = app.update(cx, |this, cx| {
+                                        this.commands.send(
+                                            signal_core::BackendCommand::UpdateProfile {
+                                                given_name: given,
+                                                family_name: family,
+                                                about,
+                                            },
+                                        );
+                                        cx.notify();
+                                    });
+                                    window.close_dialog(cx);
+                                })
+                        })
+                        .child(
+                            Button::new("profile-unlink")
+                                .danger()
+                                .label("Unlink this device…")
+                                .on_click(move |_, window, cx| {
+                                    window.close_dialog(cx);
+                                    let _ =
+                                        app.update(cx, |this, cx| this.confirm_unlink(window, cx));
+                                }),
+                        ),
                 )
         });
     }

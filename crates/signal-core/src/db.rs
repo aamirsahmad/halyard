@@ -31,7 +31,7 @@ pub enum DbError {
 
 pub type Result<T> = std::result::Result<T, DbError>;
 
-pub const SCHEMA_VERSION: i64 = 5;
+pub const SCHEMA_VERSION: i64 = 6;
 
 const MIGRATIONS: &[&str] = &[
     // v1
@@ -114,6 +114,11 @@ const MIGRATIONS: &[&str] = &[
     ALTER TABLE contacts ADD COLUMN synced INTEGER NOT NULL DEFAULT 0;
     UPDATE contacts SET synced = 1 WHERE name IS NOT NULL;
     "#,
+    // v6: photos and about texts
+    r#"
+    ALTER TABLE conversations ADD COLUMN avatar TEXT;
+    ALTER TABLE conversations ADD COLUMN about TEXT;
+    "#,
 ];
 
 pub struct Database {
@@ -126,7 +131,7 @@ const MESSAGE_COLUMNS: &str = "id, conversation_id, author, sent_at, received_at
 
 const CONVERSATION_COLUMNS: &str = "id, title, last_activity, last_preview, last_preview_outgoing, \
      unread_count, pinned, archived, muted_until, draft, members, marked_unread, expire_timer, \
-     blocked, accepted";
+     blocked, accepted, avatar, about";
 
 fn bool_col(row: &Row, idx: usize) -> rusqlite::Result<bool> {
     Ok(row.get::<_, i64>(idx)? != 0)
@@ -212,6 +217,8 @@ fn conversation_from_row(row: &Row) -> rusqlite::Result<Conversation> {
         expire_timer: row.get::<_, Option<u32>>(12)?.filter(|t| *t > 0),
         blocked: bool_col(row, 13)?,
         accepted: bool_col(row, 14)?,
+        avatar: row.get(15)?,
+        about: row.get(16)?,
     })
 }
 
@@ -1013,6 +1020,40 @@ impl Writer<'_> {
                     ],
                 )?;
                 changes.stories_changed = n == 1;
+            }
+            Mutation::SetAvatar { conversation, path } => {
+                self.ensure_conversation(&conversation)?;
+                let old: Option<String> = self.conn.query_row(
+                    "SELECT avatar FROM conversations WHERE id = ?1",
+                    [conversation.to_string()],
+                    |r| r.get(0),
+                )?;
+                if old != path {
+                    if let Some(old) = old {
+                        changes.removed_files.push(old);
+                    }
+                    self.conn.execute(
+                        "UPDATE conversations SET avatar = ?2 WHERE id = ?1",
+                        params![conversation.to_string(), path],
+                    )?;
+                    changes
+                        .conversations
+                        .extend(self.conversation(&conversation)?);
+                }
+            }
+            Mutation::SetAbout {
+                conversation,
+                about,
+            } => {
+                self.ensure_conversation(&conversation)?;
+                let about = about.filter(|a| !a.trim().is_empty());
+                self.conn.execute(
+                    "UPDATE conversations SET about = ?2 WHERE id = ?1",
+                    params![conversation.to_string(), about],
+                )?;
+                changes
+                    .conversations
+                    .extend(self.conversation(&conversation)?);
             }
             Mutation::ContactsSynced { uuids } => {
                 for u in uuids {

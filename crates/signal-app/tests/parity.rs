@@ -646,9 +646,14 @@ fn reply_to_a_story(cx: &mut TestAppContext) {
 #[gpui_kit::test]
 fn mic_button_when_composer_is_empty(cx: &mut TestAppContext) {
     let h = setup(cx);
-    with_app(cx, &h, |a, w, cx| a.open_conversation(ConversationId::Direct(DEMO_BOB), w, cx));
+    with_app(cx, &h, |a, w, cx| {
+        a.open_conversation(ConversationId::Direct(DEMO_BOB), w, cx)
+    });
     with_window(cx, &h, |w, _| {
-        assert!(w.try_find("record").is_some(), "mic shown for an empty composer");
+        assert!(
+            w.try_find("record").is_some(),
+            "mic shown for an empty composer"
+        );
         assert!(w.try_find("send").is_none());
     });
     with_window(cx, &h, |w, cx| w.input("hi", cx));
@@ -657,4 +662,65 @@ fn mic_button_when_composer_is_empty(cx: &mut TestAppContext) {
         assert!(w.try_find("record").is_none());
     });
     cx.update(|cx| assert!(!h.app.read(cx).is_recording()));
+}
+
+const TINY_PNG: &[u8] = &[
+    0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 0x0D, 0x49, 0x48, 0x44, 0x52, 0, 0, 0,
+    1, 0, 0, 0, 1, 8, 6, 0, 0, 0, 0x1F, 0x15, 0xC4, 0x89, 0, 0, 0, 0x0A, 0x49, 0x44, 0x41, 0x54,
+    0x78, 0x9C, 0x63, 0, 1, 0, 0, 5, 0, 1, 0x0D, 0x0A, 0x2D, 0xB4, 0, 0, 0, 0, 0x49, 0x45, 0x4E,
+    0x44, 0xAE, 0x42, 0x60, 0x82,
+];
+
+#[gpui_kit::test]
+fn contact_photos_replace_initials(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("alice-avatar");
+    std::fs::write(&path, TINY_PNG).unwrap();
+    let h = setup_with(
+        cx,
+        vec![
+            Mutation::SetAvatar {
+                conversation: alice(),
+                path: Some(path.to_string_lossy().into_owned()),
+            },
+            Mutation::SetAbout {
+                conversation: alice(),
+                about: Some("Coffee first".into()),
+            },
+        ],
+    );
+    cx.update(|cx| {
+        let app = h.app.read(cx);
+        assert!(app.photo_for(&alice()).is_some(), "photo decoded");
+        assert!(app.photo_for(&ConversationId::Direct(DEMO_BOB)).is_none());
+    });
+    with_app(cx, &h, |a, w, cx| a.show_details(alice(), w, cx));
+    with_window(cx, &h, |w, _| {
+        assert!(w.try_find("details-about").is_some())
+    });
+}
+
+#[gpui_kit::test]
+fn edit_profile_sends_update(cx: &mut TestAppContext) {
+    let h = setup(cx);
+    with_app(cx, &h, |a, w, cx| a.open_profile(w, cx));
+    h.sink.take();
+    with_window(cx, &h, |w, cx| {
+        assert_eq!(
+            w.find("profile-given").value(),
+            Some("Sam"),
+            "prefilled from the contact"
+        );
+        w.click("profile-about", cx);
+        w.input("Hiking and soup", cx);
+        w.click("profile-save", cx);
+    });
+    assert_eq!(
+        h.sink.take(),
+        vec![BackendCommand::UpdateProfile {
+            given_name: "Sam".into(),
+            family_name: Some("Taylor".into()),
+            about: Some("Hiking and soup".into())
+        }]
+    );
 }

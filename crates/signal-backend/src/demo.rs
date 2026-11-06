@@ -573,7 +573,30 @@ fn demo_reaction(
             });
             vec![]
         }
+        BackendCommand::UpdateProfile {
+            given_name,
+            family_name,
+            about,
+        } => {
+            let name = match family_name.filter(|f| !f.trim().is_empty()) {
+                Some(f) => format!("{given_name} {f}"),
+                None => given_name,
+            };
+            vec![
+                Mutation::UpsertContact(Contact {
+                    uuid: DEMO_ME,
+                    name: None,
+                    profile_name: Some(name),
+                    phone: None,
+                }),
+                Mutation::SetAbout {
+                    conversation: ConversationId::Direct(DEMO_ME),
+                    about,
+                },
+            ]
+        }
         BackendCommand::Link { .. }
+        | BackendCommand::FetchAvatar { .. }
         | BackendCommand::SetReadReceipts(_)
         | BackendCommand::Typing { .. }
         | BackendCommand::SyncContacts

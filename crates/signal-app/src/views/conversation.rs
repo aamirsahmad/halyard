@@ -104,6 +104,7 @@ impl SignalApp {
                     )
                     .child(
                         Avatar::new(id.color_seed(), conv.title.clone())
+                            .photo(self.photo_for(&id))
                             .note_to_self(self.is_note_to_self(&id))
                             .group(id.is_group())
                             .size(rem_px(32.)),

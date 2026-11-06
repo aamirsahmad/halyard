@@ -304,6 +304,10 @@ pub struct Conversation {
     pub blocked: bool,
     /// False while this is a message request from an unknown sender.
     pub accepted: bool,
+    /// Local (encrypted) file of the contact's or group's photo.
+    pub avatar: Option<String>,
+    /// Contact's "about" text or group description.
+    pub about: Option<String>,
 }
 
 impl Conversation {
@@ -325,6 +329,8 @@ impl Conversation {
             expire_timer: None,
             blocked: false,
             accepted: true,
+            avatar: None,
+            about: None,
         }
     }
 

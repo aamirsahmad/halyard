@@ -2,7 +2,8 @@
 
 use gpui_kit::component::Icon;
 use gpui_kit::{
-    App, IntoElement, ParentElement as _, Rems, RenderOnce, SharedString, Styled as _, Window, div,
+    App, IntoElement, ParentElement as _, Rems, RenderOnce, SharedString, Styled as _,
+    StyledImage as _, Window, div,
 };
 use signal_core::avatar;
 
@@ -17,6 +18,7 @@ pub struct Avatar {
     size: Rems,
     group: bool,
     note: bool,
+    photo: Option<std::sync::Arc<gpui_kit::Image>>,
 }
 
 impl Avatar {
@@ -27,6 +29,7 @@ impl Avatar {
             size: rem_px(48.),
             group: false,
             note: false,
+            photo: None,
         }
     }
 
@@ -38,6 +41,12 @@ impl Avatar {
     /// Signal's "Note to Self" avatar (accent circle with a note icon).
     pub fn note_to_self(mut self, note: bool) -> Self {
         self.note = note;
+        self
+    }
+
+    /// Shows the contact's or group's photo instead of initials.
+    pub fn photo(mut self, photo: Option<std::sync::Arc<gpui_kit::Image>>) -> Self {
+        self.photo = photo;
         self
     }
 
@@ -66,6 +75,13 @@ impl RenderOnce for Avatar {
             .bg(hex(color.bg))
             .text_color(hex(color.fg))
             .overflow_hidden();
+        if let Some(photo) = self.photo {
+            return base.child(
+                gpui_kit::img(photo)
+                    .size_full()
+                    .object_fit(gpui_kit::ObjectFit::Cover),
+            );
+        }
         if self.note {
             return base.child(
                 Icon::new(Icons::NotebookPen)

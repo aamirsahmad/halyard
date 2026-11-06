@@ -150,6 +150,11 @@ enum Internal {
         story_id: i64,
         path: Option<PathBuf>,
     },
+    Avatar {
+        conversation: ConversationId,
+        bytes: Option<Vec<u8>>,
+        about: Option<String>,
+    },
 }
 
 struct Worker {
@@ -167,6 +172,7 @@ struct Worker {
     last_sent_at: Millis,
     profile_requested: HashSet<Uuid>,
     read_receipts: bool,
+    avatar_requested: HashSet<ConversationId>,
 }
 
 /// Derives the public group identifier (as used in typing messages) from a master key.
@@ -225,6 +231,7 @@ impl Worker {
             last_sent_at: 0,
             profile_requested: HashSet::new(),
             read_receipts: true,
+            avatar_requested: HashSet::new(),
         })
     }
 
@@ -374,6 +381,19 @@ impl Worker {
             Err(e) => self.error("Failed to save contacts", e),
         }
         self.emit(BackendEvent::ContactsChanged);
+        // photos for the chats in the list (most recent first) and yourself
+        let mut wanted: Vec<ConversationId> = self
+            .db
+            .conversations()
+            .unwrap_or_default()
+            .into_iter()
+            .take(200)
+            .map(|c| c.id)
+            .collect();
+        if let Some(me) = self.me {
+            wanted.insert(0, ConversationId::Direct(me));
+        }
+        self.fetch_avatars(wanted);
     }
 
     /// Syncs a group's title and members from presage's store (which presage
@@ -489,6 +509,35 @@ impl Worker {
                 }
             }
             Internal::Error(e) => self.emit(BackendEvent::Error(e)),
+            Internal::Avatar {
+                conversation,
+                bytes,
+                about,
+            } => {
+                let mut changes = Changes::default();
+                if let Some(bytes) = bytes.filter(|b| !b.is_empty()) {
+                    let store = self.config.paths.attachment_store(&self.config.db_key);
+                    let name = format!(
+                        "avatar-{}-{}",
+                        sanitize_file_name(&conversation.to_string()),
+                        now_millis()
+                    );
+                    match store.write(&name, &bytes) {
+                        Ok(path) => changes.extend(self.apply(Mutation::SetAvatar {
+                            conversation,
+                            path: Some(path.to_string_lossy().into_owned()),
+                        })),
+                        Err(e) => tracing::warn!(%e, "failed to save avatar"),
+                    }
+                }
+                if about.is_some() {
+                    changes.extend(self.apply(Mutation::SetAbout {
+                        conversation,
+                        about,
+                    }));
+                }
+                self.emit_changes(changes);
+            }
             Internal::StoryAttachmentDownloaded { story_id, path } => {
                 if let Some(path) = path {
                     let ch = self.apply(Mutation::StoryAttachmentDownloaded {
@@ -570,6 +619,76 @@ impl Worker {
                 }
             }
         }
+    }
+
+    /// Fetches photos (and about texts) of conversations one after another.
+    fn fetch_avatars(&mut self, conversations: Vec<ConversationId>) {
+        let Some(manager) = self.manager.clone() else {
+            return;
+        };
+        let todo: Vec<ConversationId> = conversations
+            .into_iter()
+            .filter(|c| self.avatar_requested.insert(*c))
+            .collect();
+        if todo.is_empty() {
+            return;
+        }
+        let store = self.store.clone();
+        let tx = self.internal_tx.clone();
+        spawn_local(async move {
+            let mut manager = manager;
+            for conversation in todo {
+                let (bytes, about) = match conversation {
+                    ConversationId::Direct(uuid) => {
+                        let sid = ServiceId::Aci(Aci::from(uuid));
+                        match store.profile_key(&sid).await {
+                            Ok(Some(key)) => {
+                                let about = manager
+                                    .retrieve_profile_by_uuid(Aci::from(uuid), key)
+                                    .await
+                                    .ok()
+                                    .and_then(|p| p.about);
+                                let bytes = manager
+                                    .retrieve_profile_avatar_by_uuid(uuid, key)
+                                    .await
+                                    .ok()
+                                    .flatten();
+                                (bytes, about)
+                            }
+                            _ => (None, None),
+                        }
+                    }
+                    ConversationId::Group(key) => {
+                        let group = store.group(key.0).await.ok().flatten();
+                        let about = group.as_ref().and_then(|g| g.description.clone());
+                        let bytes = match group.filter(|g| !g.avatar.is_empty()) {
+                            Some(g) => manager
+                                .retrieve_group_avatar(GroupContextV2 {
+                                    master_key: Some(key.0.to_vec()),
+                                    revision: Some(g.revision),
+                                    group_change: None,
+                                })
+                                .await
+                                .ok()
+                                .flatten(),
+                            None => None,
+                        };
+                        (bytes, about)
+                    }
+                };
+                if (bytes.is_some() || about.is_some())
+                    && tx
+                        .send(Internal::Avatar {
+                            conversation,
+                            bytes,
+                            about,
+                        })
+                        .is_err()
+                {
+                    return;
+                }
+            }
+        });
     }
 
     /// Downloads attachments of newly received stories.
@@ -844,6 +963,44 @@ impl Worker {
             }
             BackendCommand::MarkRead { conversation } => self.mark_read(conversation),
             BackendCommand::SetReadReceipts(on) => self.read_receipts = on,
+            BackendCommand::FetchAvatar { conversation } => self.fetch_avatars(vec![conversation]),
+            BackendCommand::UpdateProfile {
+                given_name,
+                family_name,
+                about,
+            } => {
+                let (Some(mut manager), Some(me)) = (self.manager.clone(), self.me) else {
+                    return;
+                };
+                let tx = self.internal_tx.clone();
+                spawn_local(async move {
+                    let name = presage::libsignal_service::profile_name::ProfileName {
+                        given_name: given_name.clone(),
+                        family_name: family_name.clone().filter(|f| !f.trim().is_empty()),
+                    };
+                    match manager.update_profile(name, about.clone(), None).await {
+                        Ok(()) => {
+                            let _ = tx.send(Internal::Profile {
+                                uuid: me,
+                                name: Some(match family_name.filter(|f| !f.trim().is_empty()) {
+                                    Some(f) => format!("{given_name} {f}"),
+                                    None => given_name,
+                                }),
+                            });
+                            let _ = tx.send(Internal::Avatar {
+                                conversation: ConversationId::Direct(me),
+                                bytes: None,
+                                about: Some(about.unwrap_or_default()),
+                            });
+                        }
+                        Err(e) => {
+                            let _ = tx.send(Internal::Error(format!(
+                                "Couldn't update your profile: {e}"
+                            )));
+                        }
+                    }
+                });
+            }
             BackendCommand::RequestSafetyNumber { contact } => {
                 let number = match self.me {
                     Some(me) => {

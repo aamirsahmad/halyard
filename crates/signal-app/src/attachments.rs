@@ -50,11 +50,11 @@ impl AttachmentAccess {
         });
         let image = match (format, self.read(Path::new(path))) {
             (Some(format), Ok(bytes)) => Some(Arc::new(Image::from_bytes(format, bytes))),
+            (None, Ok(bytes)) => sniff(&bytes).map(|f| Arc::new(Image::from_bytes(f, bytes))),
             (_, Err(e)) => {
                 tracing::warn!(%e, "failed to read attachment");
                 None
             }
-            (None, _) => None,
         };
         let mut images = self.images.borrow_mut();
         if images.len() >= CACHE_LIMIT {
@@ -105,6 +105,32 @@ impl AttachmentAccess {
     }
 }
 
+/// Image format from the file's magic bytes (avatars carry no content type).
+pub fn sniff(bytes: &[u8]) -> Option<ImageFormat> {
+    match bytes {
+        [0x89, b'P', b'N', b'G', ..] => Some(ImageFormat::Png),
+        [0xFF, 0xD8, 0xFF, ..] => Some(ImageFormat::Jpeg),
+        [b'G', b'I', b'F', b'8', ..] => Some(ImageFormat::Gif),
+        [
+            b'R',
+            b'I',
+            b'F',
+            b'F',
+            _,
+            _,
+            _,
+            _,
+            b'W',
+            b'E',
+            b'B',
+            b'P',
+            ..,
+        ] => Some(ImageFormat::Webp),
+        [b'B', b'M', ..] => Some(ImageFormat::Bmp),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -128,6 +154,14 @@ mod tests {
         assert_eq!(img.bytes(), PNG);
         std::fs::remove_file(&path).unwrap();
         assert!(access.image(&p, "image/png").is_some(), "served from cache");
+    }
+
+    #[test]
+    fn sniffs_formats() {
+        assert_eq!(sniff(PNG), Some(ImageFormat::Png));
+        assert_eq!(sniff(&[0xFF, 0xD8, 0xFF, 0xE0]), Some(ImageFormat::Jpeg));
+        assert_eq!(sniff(b"RIFF1234WEBPVP8 "), Some(ImageFormat::Webp));
+        assert_eq!(sniff(b"hello"), None);
     }
 
     #[test]

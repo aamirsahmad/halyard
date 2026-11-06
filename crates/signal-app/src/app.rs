@@ -109,6 +109,8 @@ pub struct TimelineData {
     pub is_group: bool,
     pub attachments: Rc<crate::attachments::AttachmentAccess>,
     pub audio: Rc<crate::audio::AudioPlayer>,
+    /// Photo files of contacts, for group sender avatars.
+    pub photos: Rc<HashMap<Uuid, String>>,
 }
 
 /// What changed in the open conversation's messages.
@@ -161,6 +163,9 @@ pub struct SignalApp {
     pub(crate) audio: Rc<crate::audio::AudioPlayer>,
     pub(crate) stories: Vec<signal_core::Story>,
     pub(crate) story_reply: Entity<InputState>,
+    pub(crate) profile_given: Entity<InputState>,
+    pub(crate) profile_family: Entity<InputState>,
+    pub(crate) profile_about: Entity<InputState>,
     pub(crate) recorder: Option<crate::audio::Recorder>,
     audio_was_active: bool,
     pub(crate) composer_emoji: Entity<crate::views::emoji_picker::EmojiPicker>,
@@ -181,6 +186,11 @@ impl SignalApp {
         let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search"));
         let conv_search = cx.new(|cx| InputState::new(window, cx).placeholder("Search in chat"));
         let story_reply = cx.new(|cx| InputState::new(window, cx).placeholder("Reply…"));
+        let profile_given =
+            cx.new(|cx| InputState::new(window, cx).placeholder("First name (required)"));
+        let profile_family =
+            cx.new(|cx| InputState::new(window, cx).placeholder("Last name (optional)"));
+        let profile_about = cx.new(|cx| InputState::new(window, cx).placeholder("About"));
         let composer = cx.new(|cx| {
             TextareaState::new(window, cx)
                 .auto_grow(1, 8)
@@ -301,6 +311,7 @@ impl SignalApp {
                 is_group: false,
                 attachments: Rc::default(),
                 audio: Rc::default(),
+                photos: Rc::default(),
             }),
             replying_to: None,
             editing: None,
@@ -322,6 +333,9 @@ impl SignalApp {
             audio: Rc::default(),
             stories: Vec::new(),
             story_reply,
+            profile_given,
+            profile_family,
+            profile_about,
             recorder: None,
             audio_was_active: false,
             composer_emoji,
@@ -380,6 +394,29 @@ impl SignalApp {
 
     pub fn composer(&self) -> &Entity<TextareaState> {
         &self.composer
+    }
+
+    /// Photo of a conversation, if one has been downloaded.
+    pub fn photo_for(&self, id: &ConversationId) -> Option<std::sync::Arc<gpui_kit::Image>> {
+        let path = self
+            .state
+            .conversation(id)
+            .and_then(|c| c.avatar.clone())
+            .or_else(|| {
+                self.contacts
+                    .iter()
+                    .find(|c| c.id == *id)
+                    .and_then(|c| c.avatar.clone())
+            })?;
+        self.attachments.image(&path, "")
+    }
+
+    fn photo_paths(&self) -> HashMap<Uuid, String> {
+        self.state
+            .conversations()
+            .iter()
+            .filter_map(|c| Some((c.id.direct_uuid()?, c.avatar.clone()?)))
+            .collect()
     }
 
     pub fn audio_status(&self) -> crate::audio::PlaybackStatus {
@@ -597,6 +634,10 @@ impl SignalApp {
             .find(|m| !m.outgoing && !m.read && !m.is_notice())
             .map(|m| m.id);
         self.unread_anchor = first_unread.map(|id| (id, unread as usize));
+        if conv.avatar.is_none() {
+            self.commands
+                .send(BackendCommand::FetchAvatar { conversation: id });
+        }
         self.state.open(conv, messages, has_more);
         self.conv_search_open = false;
         self.conv_search_results.clear();
@@ -800,6 +841,7 @@ impl SignalApp {
             is_group: self.state.selected().is_some_and(|c| c.is_group()),
             attachments: self.attachments.clone(),
             audio: self.audio.clone(),
+            photos: Rc::new(self.photo_paths()),
         });
         self.scroller.update(cx, |s, cx| match change {
             TimelineChange::Reset => {
@@ -1257,9 +1299,17 @@ impl SignalApp {
             .collect();
         let me = self.me();
         let palette = crate::theme::Palette::current(cx);
+        let extras = crate::views::details::DetailsExtras {
+            photo: self.photo_for(&id),
+            about: self.state.conversation(&id).and_then(|c| c.about.clone()),
+            member_photos: members
+                .iter()
+                .filter_map(|(u, _)| Some((*u, self.photo_for(&ConversationId::Direct(*u))?)))
+                .collect(),
+        };
         window.open_dialog(cx, move |dialog, _, _| {
             crate::views::details::details_dialog(
-                dialog, &title, id, &members, &phones, me, &palette,
+                dialog, &title, id, &members, &phones, me, &extras, &palette,
             )
         });
     }
