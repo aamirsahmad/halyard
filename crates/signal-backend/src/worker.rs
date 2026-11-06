@@ -345,21 +345,22 @@ impl Worker {
         self.emit(BackendEvent::ContactsChanged);
     }
 
+    /// Syncs a group's title and members from presage's store (which presage
+    /// keeps up to date from group changes), emitting only real changes.
     async fn ensure_group(&mut self, key: GroupKey) {
         self.group_ids.entry(group_identifier(&key)).or_insert(key);
-        let id = ConversationId::Group(key);
-        let known = matches!(self.db.conversation(&id), Ok(Some(c)) if c.title != "Unknown group");
-        if known {
+        let Ok(Some(g)) = self.store.group(key.0).await else {
+            return;
+        };
+        let members: Vec<Uuid> = g.members.iter().map(|m| m.aci.into()).collect();
+        // same normalisation as the database applies
+        let title = if g.title.trim().is_empty() { "Unnamed group".to_string() } else { g.title };
+        let current = self.db.conversation(&ConversationId::Group(key)).ok().flatten();
+        if current.is_some_and(|c| c.title == title && c.members == members) {
             return;
         }
-        if let Ok(Some(g)) = self.store.group(key.0).await {
-            let ch = self.apply(Mutation::UpsertGroup {
-                key,
-                title: g.title,
-                members: g.members.iter().map(|m| m.aci.into()).collect(),
-            });
-            self.emit_changes(ch);
-        }
+        let ch = self.apply(Mutation::UpsertGroup { key, title, members });
+        self.emit_changes(ch);
     }
 
     /// Fetches the profile name of a sender we have no name for.
