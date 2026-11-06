@@ -36,7 +36,9 @@ pub fn build_timeline(
     for (i, m) in messages.iter().enumerate() {
         let day = day_of(m.sent_at);
         if last_day != Some(day) {
-            items.push(TimelineItem::DateSeparator(crate::format::date_separator(day, today)));
+            items.push(TimelineItem::DateSeparator(crate::format::date_separator(
+                day, today,
+            )));
             last_day = Some(day);
         }
         let prev = i.checked_sub(1).map(|p| &messages[p]);
@@ -120,7 +122,10 @@ mod tests {
         ];
         let today = day_of(0);
         let items = build_timeline(&msgs, today, day_of);
-        assert_eq!(flags(&items), vec!["[Today]", "0F", "1L", "2FL", "3F", "4L"]);
+        assert_eq!(
+            flags(&items),
+            vec!["[Today]", "0F", "1L", "2FL", "3F", "4L"]
+        );
     }
 
     #[test]

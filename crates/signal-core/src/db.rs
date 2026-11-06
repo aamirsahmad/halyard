@@ -89,7 +89,9 @@ fn bool_col(row: &Row, idx: usize) -> rusqlite::Result<bool> {
 }
 
 fn parse_uuid(s: String) -> rusqlite::Result<Uuid> {
-    Uuid::parse_str(&s).map_err(|e| rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, Box::new(e)))
+    Uuid::parse_str(&s).map_err(|e| {
+        rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, Box::new(e))
+    })
 }
 
 fn parse_conv_id(s: String) -> rusqlite::Result<ConversationId> {
@@ -173,7 +175,12 @@ impl Database {
             conn.pragma_update(None, "key", key)?;
         }
         // Touching the schema validates the key.
-        if conn.query_row("SELECT count(*) FROM sqlite_master", [], |r| r.get::<_, i64>(0)).is_err() {
+        if conn
+            .query_row("SELECT count(*) FROM sqlite_master", [], |r| {
+                r.get::<_, i64>(0)
+            })
+            .is_err()
+        {
             return Err(DbError::BadKey);
         }
         conn.busy_timeout(std::time::Duration::from_secs(5))?;
@@ -187,7 +194,9 @@ impl Database {
     }
 
     pub fn schema_version(&self) -> Result<i64> {
-        Ok(self.conn.query_row("PRAGMA user_version", [], |r| r.get(0))?)
+        Ok(self
+            .conn
+            .query_row("PRAGMA user_version", [], |r| r.get(0))?)
     }
 
     fn migrate(&mut self) -> Result<()> {
@@ -327,7 +336,9 @@ impl Database {
     }
 
     pub fn contacts(&self) -> Result<Vec<Contact>> {
-        let mut stmt = self.conn.prepare("SELECT uuid, name, profile_name, phone FROM contacts")?;
+        let mut stmt = self
+            .conn
+            .prepare("SELECT uuid, name, profile_name, phone FROM contacts")?;
         let rows = stmt.query_map([], |r| {
             Ok(Contact {
                 uuid: parse_uuid(r.get(0)?)?,
@@ -368,11 +379,19 @@ impl Database {
         Ok(())
     }
 
-    pub fn set_pinned(&mut self, id: &ConversationId, pinned: bool) -> Result<Option<Conversation>> {
+    pub fn set_pinned(
+        &mut self,
+        id: &ConversationId,
+        pinned: bool,
+    ) -> Result<Option<Conversation>> {
         self.set_flag(id, "pinned", pinned)
     }
 
-    pub fn set_archived(&mut self, id: &ConversationId, archived: bool) -> Result<Option<Conversation>> {
+    pub fn set_archived(
+        &mut self,
+        id: &ConversationId,
+        archived: bool,
+    ) -> Result<Option<Conversation>> {
         self.set_flag(id, "archived", archived)
     }
 
@@ -380,7 +399,12 @@ impl Database {
         self.set_flag(id, "muted", muted)
     }
 
-    fn set_flag(&mut self, id: &ConversationId, column: &'static str, value: bool) -> Result<Option<Conversation>> {
+    fn set_flag(
+        &mut self,
+        id: &ConversationId,
+        column: &'static str,
+        value: bool,
+    ) -> Result<Option<Conversation>> {
         self.conn.execute(
             &format!("UPDATE conversations SET {column} = ?2 WHERE id = ?1"),
             params![id.to_string(), value as i64],
@@ -406,7 +430,9 @@ impl Database {
 
     /// Deletes all local data (used when unlinking).
     pub fn wipe(&mut self) -> Result<()> {
-        self.conn.execute_batch("DELETE FROM messages; DELETE FROM conversations; DELETE FROM contacts;")?;
+        self.conn.execute_batch(
+            "DELETE FROM messages; DELETE FROM conversations; DELETE FROM contacts;",
+        )?;
         Ok(())
     }
 
@@ -449,7 +475,12 @@ impl Writer<'_> {
             .optional()?)
     }
 
-    fn message_by_key(&self, conv: &ConversationId, author: &Uuid, sent_at: Millis) -> Result<Option<Message>> {
+    fn message_by_key(
+        &self,
+        conv: &ConversationId,
+        author: &Uuid,
+        sent_at: Millis,
+    ) -> Result<Option<Message>> {
         Ok(self
             .conn
             .query_row(
@@ -487,7 +518,8 @@ impl Writer<'_> {
                 },
             )
             .optional()?;
-        Ok(c.map(|c| c.display_name()).unwrap_or_else(|| "Unknown contact".into()))
+        Ok(c.map(|c| c.display_name())
+            .unwrap_or_else(|| "Unknown contact".into()))
     }
 
     fn ensure_conversation(&self, id: &ConversationId) -> Result<()> {
@@ -554,9 +586,17 @@ impl Writer<'_> {
                 )?;
                 changes.conversations.extend(self.conversation(&id)?);
             }
-            Mutation::UpsertGroup { key, title, members } => {
+            Mutation::UpsertGroup {
+                key,
+                title,
+                members,
+            } => {
                 let id = ConversationId::Group(key);
-                let title = if title.trim().is_empty() { "Unnamed group".to_string() } else { title };
+                let title = if title.trim().is_empty() {
+                    "Unnamed group".to_string()
+                } else {
+                    title
+                };
                 self.conn.execute(
                     "INSERT INTO conversations (id, title, members) VALUES (?1, ?2, ?3) \
                      ON CONFLICT(id) DO UPDATE SET title = excluded.title, members = excluded.members",
@@ -568,10 +608,18 @@ impl Writer<'_> {
                 self.ensure_conversation(&m.conversation)?;
                 if let Some(id) = self.insert_message(&m)? {
                     changes.messages.push(self.message(id)?);
-                    changes.conversations.push(self.refresh_summary(&m.conversation)?);
+                    changes
+                        .conversations
+                        .push(self.refresh_summary(&m.conversation)?);
                 }
             }
-            Mutation::Edit { conversation, author, target_sent_at, body, edited_at } => {
+            Mutation::Edit {
+                conversation,
+                author,
+                target_sent_at,
+                body,
+                edited_at,
+            } => {
                 if let Some(msg) = self.message_by_key(&conversation, &author, target_sent_at)? {
                     if !msg.deleted {
                         self.conn.execute(
@@ -579,11 +627,17 @@ impl Writer<'_> {
                             params![msg.id, body, edited_at],
                         )?;
                         changes.messages.push(self.message(msg.id)?);
-                        changes.conversations.push(self.refresh_summary(&conversation)?);
+                        changes
+                            .conversations
+                            .push(self.refresh_summary(&conversation)?);
                     }
                 }
             }
-            Mutation::DeleteForEveryone { conversation, author, target_sent_at } => {
+            Mutation::DeleteForEveryone {
+                conversation,
+                author,
+                target_sent_at,
+            } => {
                 if let Some(msg) = self.message_by_key(&conversation, &author, target_sent_at)? {
                     self.conn.execute(
                         "UPDATE messages SET body = '', attachments = '[]', quote = NULL, \
@@ -591,11 +645,23 @@ impl Writer<'_> {
                         [msg.id],
                     )?;
                     changes.messages.push(self.message(msg.id)?);
-                    changes.conversations.push(self.refresh_summary(&conversation)?);
+                    changes
+                        .conversations
+                        .push(self.refresh_summary(&conversation)?);
                 }
             }
-            Mutation::React { conversation, target_author, target_sent_at, reactor, emoji, remove, at } => {
-                if let Some(mut msg) = self.message_by_key(&conversation, &target_author, target_sent_at)? {
+            Mutation::React {
+                conversation,
+                target_author,
+                target_sent_at,
+                reactor,
+                emoji,
+                remove,
+                at,
+            } => {
+                if let Some(mut msg) =
+                    self.message_by_key(&conversation, &target_author, target_sent_at)?
+                {
                     // one reaction per reactor, like Signal
                     msg.reactions.retain(|r| r.reactor != reactor);
                     if !remove {
@@ -608,7 +674,11 @@ impl Writer<'_> {
                     changes.messages.push(self.message(msg.id)?);
                 }
             }
-            Mutation::Receipt { from, kind, sent_ats } => {
+            Mutation::Receipt {
+                from,
+                kind,
+                sent_ats,
+            } => {
                 for sent_at in sent_ats {
                     let mut stmt = self.conn.prepare(&format!(
                         "SELECT {MESSAGE_COLUMNS} FROM messages WHERE outgoing = 1 AND sent_at = ?1"
@@ -634,7 +704,11 @@ impl Writer<'_> {
                     }
                 }
             }
-            Mutation::SendStatus { conversation, sent_at, status } => {
+            Mutation::SendStatus {
+                conversation,
+                sent_at,
+                status,
+            } => {
                 let mut stmt = self.conn.prepare(&format!(
                     "SELECT {MESSAGE_COLUMNS} FROM messages \
                      WHERE conversation_id = ?1 AND outgoing = 1 AND sent_at = ?2"
@@ -659,7 +733,9 @@ impl Writer<'_> {
                      WHERE author = ?1 AND sent_at = ?2 AND outgoing = 0 AND read = 0",
                 )?;
                 let rows: Vec<(i64, String)> = stmt
-                    .query_map(params![author.to_string(), sent_at], |r| Ok((r.get(0)?, r.get(1)?)))?
+                    .query_map(params![author.to_string(), sent_at], |r| {
+                        Ok((r.get(0)?, r.get(1)?))
+                    })?
                     .collect::<rusqlite::Result<_>>()?;
                 for (id, conv) in rows {
                     let conv = parse_conv_id(conv)?;
@@ -678,11 +754,21 @@ impl Writer<'_> {
                     "UPDATE messages SET read = 1 WHERE conversation_id = ?1 AND outgoing = 0 AND read = 0",
                     [conversation.to_string()],
                 )?;
-                if n > 0 || self.conversation(&conversation)?.is_some_and(|c| c.unread_count > 0) {
-                    changes.conversations.push(self.refresh_summary(&conversation)?);
+                if n > 0
+                    || self
+                        .conversation(&conversation)?
+                        .is_some_and(|c| c.unread_count > 0)
+                {
+                    changes
+                        .conversations
+                        .push(self.refresh_summary(&conversation)?);
                 }
             }
-            Mutation::AttachmentDownloaded { message_id, index, local_path } => {
+            Mutation::AttachmentDownloaded {
+                message_id,
+                index,
+                local_path,
+            } => {
                 let Ok(mut msg) = self.message(message_id) else {
                     return Ok(changes);
                 };

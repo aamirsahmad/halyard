@@ -20,7 +20,12 @@ pub struct Avatar {
 
 impl Avatar {
     pub fn new(seed: impl Into<Vec<u8>>, name: impl Into<SharedString>) -> Self {
-        Self { seed: seed.into(), name: name.into(), size: px(48.), group: false }
+        Self {
+            seed: seed.into(),
+            name: name.into(),
+            size: px(48.),
+            group: false,
+        }
     }
 
     pub fn size(mut self, size: Pixels) -> Self {

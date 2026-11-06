@@ -56,11 +56,15 @@ pub use gpui_kit::assets::IconName as Icons;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use gpui_kit::assets::IconNamed as _;
 
     #[test]
     fn extra_and_default_icons_resolve() {
-        for icon in [Icons::Paperclip, Icons::SendHorizontal, Icons::SquarePen, Icons::CheckCheck] {
+        for icon in [
+            Icons::Paperclip,
+            Icons::SendHorizontal,
+            Icons::SquarePen,
+            Icons::CheckCheck,
+        ] {
             let path = icon.path();
             assert!(Assets.load(&path).unwrap().is_some(), "missing {path}");
         }

@@ -64,7 +64,10 @@ impl DataPaths {
                 let kf: KeyFile = serde_json::from_str(&s)
                     .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
                 if kf.key.len() != 64 || !kf.key.bytes().all(|b| b.is_ascii_hexdigit()) {
-                    return Err(io::Error::new(io::ErrorKind::InvalidData, "malformed database key"));
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "malformed database key",
+                    ));
                 }
                 Ok(kf.key)
             }
@@ -73,7 +76,10 @@ impl DataPaths {
                 rand::fill(&mut bytes);
                 let key = hex::encode(bytes);
                 let tmp = path.with_extension("json.tmp");
-                fs::write(&tmp, serde_json::to_vec_pretty(&KeyFile { key: key.clone() })?)?;
+                fs::write(
+                    &tmp,
+                    serde_json::to_vec_pretty(&KeyFile { key: key.clone() })?,
+                )?;
                 restrict(&tmp, 0o600)?;
                 fs::rename(&tmp, &path)?;
                 Ok(key)

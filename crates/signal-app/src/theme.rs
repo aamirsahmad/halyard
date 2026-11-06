@@ -90,7 +90,11 @@ impl Palette {
 
     /// Palette matching the active GPUI Kit theme mode.
     pub fn current(cx: &App) -> Self {
-        if cx.theme().mode.is_dark() { Self::dark() } else { Self::light() }
+        if cx.theme().mode.is_dark() {
+            Self::dark()
+        } else {
+            Self::light()
+        }
     }
 }
 
@@ -104,7 +108,11 @@ pub enum Appearance {
 }
 
 /// Applies the appearance preference to the GPUI Kit theme.
-pub fn apply_appearance(appearance: Appearance, window: Option<&mut gpui_kit::Window>, cx: &mut App) {
+pub fn apply_appearance(
+    appearance: Appearance,
+    window: Option<&mut gpui_kit::Window>,
+    cx: &mut App,
+) {
     match appearance {
         Appearance::System => Theme::sync_system_appearance(window, cx),
         Appearance::Light => Theme::change(ThemeMode::Light, window, cx),

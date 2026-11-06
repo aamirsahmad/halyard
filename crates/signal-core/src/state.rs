@@ -61,7 +61,10 @@ impl Default for ChatState {
 }
 
 fn sort_key(c: &Conversation) -> (std::cmp::Reverse<bool>, std::cmp::Reverse<i64>) {
-    (std::cmp::Reverse(c.pinned), std::cmp::Reverse(c.last_activity))
+    (
+        std::cmp::Reverse(c.pinned),
+        std::cmp::Reverse(c.last_activity),
+    )
 }
 
 impl ChatState {
@@ -199,7 +202,10 @@ impl ChatState {
     // ----------------------------------------------------------------- typing
 
     pub fn typing_in(&self, id: &ConversationId) -> Vec<Uuid> {
-        self.typing.get(id).map(|s| s.iter().copied().collect()).unwrap_or_default()
+        self.typing
+            .get(id)
+            .map(|s| s.iter().copied().collect())
+            .unwrap_or_default()
     }
 
     // ----------------------------------------------------------------- events
@@ -236,15 +242,26 @@ impl ChatState {
                             .map(|c| c.title.clone())
                             .unwrap_or_else(|| author_name(&msg.author));
                         let (title, body) = if conv_id.is_group() {
-                            (conv_title, format!("{}: {}", author_name(&msg.author), msg.preview()))
+                            (
+                                conv_title,
+                                format!("{}: {}", author_name(&msg.author), msg.preview()),
+                            )
                         } else {
                             (conv_title, msg.preview())
                         };
-                        fx.notify = Some(Notification { conversation: conv_id, title, body });
+                        fx.notify = Some(Notification {
+                            conversation: conv_id,
+                            title,
+                            body,
+                        });
                     }
                 }
             }
-            BackendEvent::Typing { conversation, who, started } => {
+            BackendEvent::Typing {
+                conversation,
+                who,
+                started,
+            } => {
                 let set = self.typing.entry(conversation).or_default();
                 if started {
                     set.insert(who);
@@ -296,7 +313,11 @@ mod tests {
     }
 
     fn name(u: &Uuid) -> String {
-        if *u == ALICE { "Alice".into() } else { "Bob".into() }
+        if *u == ALICE {
+            "Alice".into()
+        } else {
+            "Bob".into()
+        }
     }
 
     fn a() -> ConversationId {
@@ -359,9 +380,16 @@ mod tests {
     #[test]
     fn timeline_upserts_in_order_and_history() {
         let mut s = ChatState::new();
-        s.open(conv(a(), "Alice", 10), vec![msg(5, a(), ALICE, 50), msg(7, a(), ALICE, 70)], true);
+        s.open(
+            conv(a(), "Alice", 10),
+            vec![msg(5, a(), ALICE, 50), msg(7, a(), ALICE, 70)],
+            true,
+        );
         assert!(s.upsert_message(msg(6, a(), ALICE, 60)));
-        assert!(!s.upsert_message(msg(8, b(), BOB, 60)), "other conversations ignored");
+        assert!(
+            !s.upsert_message(msg(8, b(), BOB, 60)),
+            "other conversations ignored"
+        );
         let mut edited = msg(6, a(), ALICE, 60);
         edited.body = "edited".into();
         s.upsert_message(edited);
@@ -420,23 +448,52 @@ mod tests {
         let mut c = conv(a(), "Alice", 1);
         c.muted = true;
         s.set_conversations(vec![c, conv(b(), "Bob", 1)]);
-        assert!(s.apply(BackendEvent::MessageUpserted(msg(1, a(), ALICE, 5)), name).notify.is_none());
+        assert!(
+            s.apply(BackendEvent::MessageUpserted(msg(1, a(), ALICE, 5)), name)
+                .notify
+                .is_none()
+        );
         let mut out = msg(2, b(), Uuid::from_u128(99), 5);
         out.outgoing = true;
-        assert!(s.apply(BackendEvent::MessageUpserted(out), name).notify.is_none());
+        assert!(
+            s.apply(BackendEvent::MessageUpserted(out), name)
+                .notify
+                .is_none()
+        );
     }
 
     #[test]
     fn typing_indicator_lifecycle() {
         let mut s = ChatState::new();
         s.open(conv(a(), "Alice", 1), vec![], false);
-        let fx = s.apply(BackendEvent::Typing { conversation: a(), who: ALICE, started: true }, name);
+        let fx = s.apply(
+            BackendEvent::Typing {
+                conversation: a(),
+                who: ALICE,
+                started: true,
+            },
+            name,
+        );
         assert!(fx.timeline_changed);
         assert_eq!(s.typing_in(&a()), vec![ALICE]);
         s.apply(BackendEvent::MessageUpserted(msg(1, a(), ALICE, 5)), name);
         assert!(s.typing_in(&a()).is_empty(), "message clears typing");
-        s.apply(BackendEvent::Typing { conversation: a(), who: ALICE, started: true }, name);
-        s.apply(BackendEvent::Typing { conversation: a(), who: ALICE, started: false }, name);
+        s.apply(
+            BackendEvent::Typing {
+                conversation: a(),
+                who: ALICE,
+                started: true,
+            },
+            name,
+        );
+        s.apply(
+            BackendEvent::Typing {
+                conversation: a(),
+                who: ALICE,
+                started: false,
+            },
+            name,
+        );
         assert!(s.typing_in(&a()).is_empty());
     }
 
@@ -445,7 +502,12 @@ mod tests {
         let mut s = ChatState::new();
         s.set_conversations(vec![conv(a(), "Alice", 1)]);
         s.open(conv(a(), "Alice", 1), vec![msg(1, a(), ALICE, 1)], false);
-        let info = AccountInfo { aci: ALICE, phone_number: None, device_id: 2, device_name: None };
+        let info = AccountInfo {
+            aci: ALICE,
+            phone_number: None,
+            device_id: 2,
+            device_name: None,
+        };
         s.apply(BackendEvent::Account(AccountState::Registered(info)), name);
         assert_eq!(s.conversations().len(), 1);
         s.apply(BackendEvent::Account(AccountState::Unlinked), name);

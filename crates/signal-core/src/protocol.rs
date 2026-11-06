@@ -14,7 +14,9 @@ use crate::model::{
 #[derive(Clone, Debug, PartialEq)]
 pub enum BackendCommand {
     /// Start linking this client as a secondary device.
-    Link { device_name: String },
+    Link {
+        device_name: String,
+    },
     SendText {
         conversation: ConversationId,
         body: String,
@@ -22,7 +24,10 @@ pub enum BackendCommand {
         attachments: Vec<PathBuf>,
     },
     /// Retry a failed outgoing message.
-    Resend { conversation: ConversationId, sent_at: Millis },
+    Resend {
+        conversation: ConversationId,
+        sent_at: Millis,
+    },
     React {
         conversation: ConversationId,
         target_author: Uuid,
@@ -30,10 +35,18 @@ pub enum BackendCommand {
         emoji: String,
         remove: bool,
     },
-    DeleteForEveryone { conversation: ConversationId, sent_at: Millis },
+    DeleteForEveryone {
+        conversation: ConversationId,
+        sent_at: Millis,
+    },
     /// The user has seen all messages in this conversation.
-    MarkRead { conversation: ConversationId },
-    Typing { conversation: ConversationId, started: bool },
+    MarkRead {
+        conversation: ConversationId,
+    },
+    Typing {
+        conversation: ConversationId,
+        started: bool,
+    },
     /// Ask the primary device for a fresh contact list.
     SyncContacts,
     /// Unlink this device and wipe local data.
@@ -46,7 +59,9 @@ pub enum AccountState {
     /// Nothing stored yet; the UI should offer to link.
     Unlinked,
     /// Linking in progress; `url` is the provisioning URL encoded in the QR code.
-    Linking { url: Option<String> },
+    Linking {
+        url: Option<String>,
+    },
     Registered(AccountInfo),
     LinkFailed(String),
 }
@@ -59,7 +74,10 @@ pub enum ConnectionState {
     Syncing,
     Online,
     /// Lost connection, will retry after a delay.
-    Offline { reason: String, retry_in_secs: u64 },
+    Offline {
+        reason: String,
+        retry_in_secs: u64,
+    },
 }
 
 /// Events sent from the backend to the UI.
@@ -69,7 +87,11 @@ pub enum BackendEvent {
     Connection(ConnectionState),
     ConversationUpdated(Conversation),
     MessageUpserted(Message),
-    Typing { conversation: ConversationId, who: Uuid, started: bool },
+    Typing {
+        conversation: ConversationId,
+        who: Uuid,
+        started: bool,
+    },
     ContactsChanged,
     /// A user-facing, non-fatal error.
     Error(String),
@@ -112,7 +134,11 @@ pub struct NewMessage {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Mutation {
     UpsertContact(Contact),
-    UpsertGroup { key: GroupKey, title: String, members: Vec<Uuid> },
+    UpsertGroup {
+        key: GroupKey,
+        title: String,
+        members: Vec<Uuid>,
+    },
     InsertMessage(NewMessage),
     Edit {
         conversation: ConversationId,
@@ -121,7 +147,11 @@ pub enum Mutation {
         body: String,
         edited_at: Millis,
     },
-    DeleteForEveryone { conversation: ConversationId, author: Uuid, target_sent_at: Millis },
+    DeleteForEveryone {
+        conversation: ConversationId,
+        author: Uuid,
+        target_sent_at: Millis,
+    },
     React {
         conversation: ConversationId,
         target_author: Uuid,
@@ -132,14 +162,31 @@ pub enum Mutation {
         at: Millis,
     },
     /// Delivery/read receipts from `from` for our outgoing messages.
-    Receipt { from: Uuid, kind: ReceiptKind, sent_ats: Vec<Millis> },
+    Receipt {
+        from: Uuid,
+        kind: ReceiptKind,
+        sent_ats: Vec<Millis>,
+    },
     /// Local outcome of sending a message.
-    SendStatus { conversation: ConversationId, sent_at: Millis, status: MessageStatus },
+    SendStatus {
+        conversation: ConversationId,
+        sent_at: Millis,
+        status: MessageStatus,
+    },
     /// Another of our devices read a message.
-    ReadSync { author: Uuid, sent_at: Millis },
-    MarkConversationRead { conversation: ConversationId },
+    ReadSync {
+        author: Uuid,
+        sent_at: Millis,
+    },
+    MarkConversationRead {
+        conversation: ConversationId,
+    },
     /// An attachment of a stored message finished downloading.
-    AttachmentDownloaded { message_id: i64, index: usize, local_path: String },
+    AttachmentDownloaded {
+        message_id: i64,
+        index: usize,
+        local_path: String,
+    },
 }
 
 impl Mutation {
@@ -185,9 +232,16 @@ impl Changes {
     }
 
     pub fn into_events(self) -> Vec<BackendEvent> {
-        let mut ev: Vec<BackendEvent> =
-            self.messages.into_iter().map(BackendEvent::MessageUpserted).collect();
-        ev.extend(self.conversations.into_iter().map(BackendEvent::ConversationUpdated));
+        let mut ev: Vec<BackendEvent> = self
+            .messages
+            .into_iter()
+            .map(BackendEvent::MessageUpserted)
+            .collect();
+        ev.extend(
+            self.conversations
+                .into_iter()
+                .map(BackendEvent::ConversationUpdated),
+        );
         ev
     }
 }

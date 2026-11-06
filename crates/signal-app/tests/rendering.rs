@@ -33,7 +33,8 @@ mod rendering {
     fn capture(
         name: &str,
         mode: ThemeMode,
-        setup: impl FnOnce(&mut SignalApp, &mut gpui_kit::Window, &mut gpui_kit::Context<SignalApp>) + 'static,
+        setup: impl FnOnce(&mut SignalApp, &mut gpui_kit::Window, &mut gpui_kit::Context<SignalApp>)
+        + 'static,
     ) -> image::RgbaImage {
         let mut cx = context();
         cx.update(|cx| Theme::change(mode, None, cx));
@@ -56,7 +57,13 @@ mod rendering {
                     cx,
                     move |window, cx| {
                         cx.new(|cx| {
-                            let mut app = SignalApp::new(db, Rc::new(sink.clone()), Rc::new(sink), window, cx);
+                            let mut app = SignalApp::new(
+                                db,
+                                Rc::new(sink.clone()),
+                                Rc::new(sink),
+                                window,
+                                cx,
+                            );
                             setup(&mut app, window, cx);
                             app
                         })
@@ -65,10 +72,13 @@ mod rendering {
             })
             .unwrap();
         for _ in 0..3 {
-            cx.update_window(handle.into(), |_, window, cx| window.render_frame(cx)).unwrap();
+            cx.update_window(handle.into(), |_, window, cx| window.render_frame(cx))
+                .unwrap();
             cx.run_until_parked();
         }
-        let image = cx.capture_screenshot(handle.into()).expect("offscreen renderer");
+        let image = cx
+            .capture_screenshot(handle.into())
+            .expect("offscreen renderer");
         if let Ok(out) = std::env::var("SCREENSHOT_DIR") {
             std::fs::create_dir_all(&out).unwrap();
             let path = std::path::Path::new(&out).join(format!("{name}.png"));
@@ -78,8 +88,16 @@ mod rendering {
         image
     }
 
-    fn registered(app: &mut SignalApp, window: &mut gpui_kit::Window, cx: &mut gpui_kit::Context<SignalApp>) {
-        app.handle_event(BackendEvent::Account(AccountState::Registered(demo_account())), window, cx);
+    fn registered(
+        app: &mut SignalApp,
+        window: &mut gpui_kit::Window,
+        cx: &mut gpui_kit::Context<SignalApp>,
+    ) {
+        app.handle_event(
+            BackendEvent::Account(AccountState::Registered(demo_account())),
+            window,
+            cx,
+        );
     }
 
     pub fn run() {
@@ -103,11 +121,18 @@ mod rendering {
         });
         let _welcome = capture("welcome", ThemeMode::Light, registered);
         assert_eq!(light.dimensions(), dark.dimensions());
-        assert_ne!(light.as_raw(), dark.as_raw(), "themes must render differently");
+        assert_ne!(
+            light.as_raw(),
+            dark.as_raw(),
+            "themes must render differently"
+        );
         assert_ne!(link.as_raw(), light.as_raw());
         // dark mode: the top-left pixel (sidebar background) is dark
         let px = dark.get_pixel(5, 5).0;
-        assert!(px[0] < 80 && px[1] < 80 && px[2] < 80, "expected a dark sidebar, got {px:?}");
+        assert!(
+            px[0] < 80 && px[1] < 80 && px[2] < 80,
+            "expected a dark sidebar, got {px:?}"
+        );
         let px = light.get_pixel(5, 5).0;
         assert!(px[0] > 200, "expected a light sidebar, got {px:?}");
         println!("rendering: ok");

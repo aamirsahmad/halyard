@@ -46,17 +46,25 @@ impl CommandSink for BackendHandle {
 
 /// Records commands; used by tests and as a no-op sink.
 #[derive(Default, Clone)]
-pub struct RecordingSink(pub Rc<std::cell::RefCell<Vec<BackendCommand>>>);
+pub struct RecordingSink {
+    commands: Rc<std::cell::RefCell<Vec<BackendCommand>>>,
+    notifications: Rc<std::cell::RefCell<Vec<(String, String)>>>,
+}
 
 impl CommandSink for RecordingSink {
     fn send(&self, cmd: BackendCommand) {
-        self.0.borrow_mut().push(cmd);
+        self.commands.borrow_mut().push(cmd);
     }
 }
 
 impl RecordingSink {
     pub fn take(&self) -> Vec<BackendCommand> {
-        std::mem::take(&mut self.0.borrow_mut())
+        std::mem::take(&mut self.commands.borrow_mut())
+    }
+
+    /// Notifications raised so far, as `(title, body)`.
+    pub fn take_notifications(&self) -> Vec<(String, String)> {
+        std::mem::take(&mut self.notifications.borrow_mut())
     }
 }
 
@@ -85,7 +93,9 @@ impl Notifier for DesktopNotifier {
 }
 
 impl Notifier for RecordingSink {
-    fn notify(&self, _: &str, _: &str) {}
+    fn notify(&self, title: &str, body: &str) {
+        self.notifications.borrow_mut().push((title.to_string(), body.to_string()));
+    }
 }
 
 /// Snapshot of what the timeline renders; shared with row renderers.
@@ -134,6 +144,7 @@ pub struct SignalApp {
     pub(crate) appearance: Appearance,
     typing_sent: Option<(ConversationId, Instant)>,
     typing_generation: u64,
+    focus_override: Option<bool>,
     pub(crate) focus: FocusHandle,
     _subscriptions: Vec<Subscription>,
 }
@@ -148,11 +159,16 @@ impl SignalApp {
     ) -> Self {
         let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search"));
         let composer = cx.new(|cx| {
-            TextareaState::new(window, cx).auto_grow(1, 8).submit_on_enter(true).placeholder("Message")
+            TextareaState::new(window, cx)
+                .auto_grow(1, 8)
+                .submit_on_enter(true)
+                .placeholder("Message")
         });
         let device_name = cx.new(|cx| {
             let host = hostname();
-            InputState::new(window, cx).placeholder("Device name").default_value(format!("Signal GPUI on {host}"))
+            InputState::new(window, cx)
+                .placeholder("Device name")
+                .default_value(format!("Signal GPUI on {host}"))
         });
         let scroller = cx.new(|cx| MessageScrollerState::new(0, cx));
 
@@ -163,14 +179,18 @@ impl SignalApp {
                     this.set_search(q, cx);
                 }
             }),
-            cx.subscribe_in(&composer, window, |this, _, ev: &InputEvent, window, cx| match ev {
-                InputEvent::PressEnter { shift: false, .. } => this.send_composed(window, cx),
-                InputEvent::Change => this.on_composer_changed(window, cx),
-                InputEvent::Blur => this.save_draft(cx),
-                _ => {}
-            }),
+            cx.subscribe_in(
+                &composer,
+                window,
+                |this, _, ev: &InputEvent, window, cx| match ev {
+                    InputEvent::PressEnter { shift: false, .. } => this.send_composed(window, cx),
+                    InputEvent::Change => this.on_composer_changed(window, cx),
+                    InputEvent::Blur => this.save_draft(cx),
+                    _ => {}
+                },
+            ),
             cx.observe_window_activation(window, |this, window, cx| {
-                this.state.window_active = window.is_window_active();
+                this.state.window_active = this.window_is_active(window);
                 if this.state.window_active {
                     this.mark_selected_read();
                 }
@@ -210,15 +230,26 @@ impl SignalApp {
             appearance: Appearance::System,
             typing_sent: None,
             typing_generation: 0,
+            focus_override: None,
             focus: cx.focus_handle(),
             _subscriptions: subscriptions,
         };
-        this.state.window_active = window.is_window_active();
+        this.state.window_active = this.window_is_active(window);
         this.reload_names();
         this
     }
 
     // ------------------------------------------------------------- accessors
+
+    /// Overrides OS window-focus detection, which decides between marking
+    /// messages read and raising notifications. `None` uses the OS state.
+    pub fn set_focus_override(&mut self, active: Option<bool>) {
+        self.focus_override = active;
+    }
+
+    fn window_is_active(&self, window: &Window) -> bool {
+        self.focus_override.unwrap_or_else(|| window.is_window_active())
+    }
 
     pub fn state(&self) -> &ChatState {
         &self.state
@@ -248,7 +279,10 @@ impl SignalApp {
         if Some(*uuid) == self.me() {
             return "You".into();
         }
-        self.names.get(uuid).cloned().unwrap_or_else(|| "Unknown contact".into())
+        self.names
+            .get(uuid)
+            .cloned()
+            .unwrap_or_else(|| "Unknown contact".into())
     }
 
     pub fn me(&self) -> Option<Uuid> {
@@ -288,7 +322,10 @@ impl SignalApp {
         use futures::StreamExt as _;
         cx.spawn_in(window, async move |this, cx| {
             while let Some(event) = events.next().await {
-                if this.update_in(cx, |this, window, cx| this.handle_event(event, window, cx)).is_err() {
+                if this
+                    .update_in(cx, |this, window, cx| this.handle_event(event, window, cx))
+                    .is_err()
+                {
                     break;
                 }
             }
@@ -297,7 +334,12 @@ impl SignalApp {
     }
 
     /// Applies a backend event to the UI.
-    pub fn handle_event(&mut self, event: BackendEvent, window: &mut Window, cx: &mut Context<Self>) {
+    pub fn handle_event(
+        &mut self,
+        event: BackendEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let mut reload_names = false;
         match &event {
             BackendEvent::Account(AccountState::Registered(_)) => {
@@ -310,11 +352,16 @@ impl SignalApp {
             }
             _ => {}
         }
+        self.state.window_active = self.window_is_active(window);
         let registered_now = matches!(&event, BackendEvent::Account(AccountState::Registered(_)));
         let names = self.names.clone();
         let me = self.me();
         let fx: Effects = self.state.apply(event, |u| {
-            if Some(*u) == me { "You".into() } else { names.get(u).cloned().unwrap_or_else(|| "Unknown".into()) }
+            if Some(*u) == me {
+                "You".into()
+            } else {
+                names.get(u).cloned().unwrap_or_else(|| "Unknown".into())
+            }
         });
         if reload_names {
             self.reload_names();
@@ -326,7 +373,8 @@ impl SignalApp {
             }
         }
         if let Some(conv) = fx.mark_read {
-            self.commands.send(BackendCommand::MarkRead { conversation: conv });
+            self.commands
+                .send(BackendCommand::MarkRead { conversation: conv });
         }
         if let Some(n) = fx.notify {
             self.notifier.notify(&n.title, &n.body);
@@ -340,13 +388,22 @@ impl SignalApp {
 
     fn update_title(&self, window: &mut Window) {
         let unread = self.state.total_unread();
-        let title = if unread > 0 { format!("Signal ({unread})") } else { "Signal".to_string() };
+        let title = if unread > 0 {
+            format!("Signal ({unread})")
+        } else {
+            "Signal".to_string()
+        };
         window.set_window_title(&title);
     }
 
     // ---------------------------------------------------------- conversations
 
-    pub fn open_conversation(&mut self, id: ConversationId, window: &mut Window, cx: &mut Context<Self>) {
+    pub fn open_conversation(
+        &mut self,
+        id: ConversationId,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if self.state.selected() == Some(&id) {
             return;
         }
@@ -355,7 +412,10 @@ impl SignalApp {
         let conv = match self.db.ensure_conversation(&id) {
             Ok(c) => c,
             Err(e) => {
-                window.push_notification(Notification::error(format!("Failed to open chat: {e}")), cx);
+                window.push_notification(
+                    Notification::error(format!("Failed to open chat: {e}")),
+                    cx,
+                );
                 return;
             }
         };
@@ -370,10 +430,13 @@ impl SignalApp {
             self.list_mode = ListMode::Chats;
             self.clear_search(window, cx);
         }
-        self.composer.update(cx, |c, cx| c.set_value(draft, window, cx));
+        self.composer
+            .update(cx, |c, cx| c.set_value(draft, window, cx));
         self.composer.read(cx).focus_handle(cx).focus(window, cx);
+        self.state.window_active = self.window_is_active(window);
         if unread > 0 && self.state.window_active {
-            self.commands.send(BackendCommand::MarkRead { conversation: id });
+            self.commands
+                .send(BackendCommand::MarkRead { conversation: id });
         }
         self.rebuild_timeline(TimelineChange::Reset, cx);
         cx.notify();
@@ -391,11 +454,19 @@ impl SignalApp {
 
     /// Moves the selection up or down the visible conversation list.
     pub fn select_relative(&mut self, delta: isize, window: &mut Window, cx: &mut Context<Self>) {
-        let ids: Vec<ConversationId> = self.state.visible_conversations().iter().map(|c| c.id).collect();
+        let ids: Vec<ConversationId> = self
+            .state
+            .visible_conversations()
+            .iter()
+            .map(|c| c.id)
+            .collect();
         if ids.is_empty() {
             return;
         }
-        let current = self.state.selected().and_then(|s| ids.iter().position(|i| i == s));
+        let current = self
+            .state
+            .selected()
+            .and_then(|s| ids.iter().position(|i| i == s));
         let next = match current {
             Some(i) => (i as isize + delta).clamp(0, ids.len() as isize - 1) as usize,
             None => 0,
@@ -406,7 +477,8 @@ impl SignalApp {
     fn mark_selected_read(&mut self) {
         if let Some(c) = self.state.selected_conversation() {
             if c.unread_count > 0 {
-                self.commands.send(BackendCommand::MarkRead { conversation: c.id });
+                self.commands
+                    .send(BackendCommand::MarkRead { conversation: c.id });
             }
         }
     }
@@ -415,11 +487,16 @@ impl SignalApp {
         if self.loading_history || !self.state.has_more_history {
             return;
         }
-        let (Some(id), Some(cursor)) = (self.state.selected().copied(), self.state.history_cursor()) else {
+        let (Some(id), Some(cursor)) =
+            (self.state.selected().copied(), self.state.history_cursor())
+        else {
             return;
         };
         self.loading_history = true;
-        let older = self.db.messages(&id, Some(cursor), PAGE_SIZE).unwrap_or_default();
+        let older = self
+            .db
+            .messages(&id, Some(cursor), PAGE_SIZE)
+            .unwrap_or_default();
         let has_more = older.len() == PAGE_SIZE;
         self.state.prepend_history(older, has_more);
         self.loading_history = false;
@@ -453,7 +530,9 @@ impl SignalApp {
                     s.scroll_to_end(cx);
                 }
             }
-            TimelineChange::Update | TimelineChange::Prepend if new_len == s.item_count() => s.remeasure(cx),
+            TimelineChange::Update | TimelineChange::Prepend if new_len == s.item_count() => {
+                s.remeasure(cx)
+            }
             _ => s.reset(new_len, cx),
         });
     }
@@ -519,11 +598,12 @@ impl SignalApp {
     // ---------------------------------------------------------------- search
 
     pub(crate) fn set_search(&mut self, query: String, cx: &mut Context<Self>) {
-        self.message_results = if query.trim().chars().count() >= 2 && self.list_mode != ListMode::NewChat {
-            self.db.search_messages(&query, 50).unwrap_or_default()
-        } else {
-            Vec::new()
-        };
+        self.message_results =
+            if query.trim().chars().count() >= 2 && self.list_mode != ListMode::NewChat {
+                self.db.search_messages(&query, 50).unwrap_or_default()
+            } else {
+                Vec::new()
+            };
         self.state.set_filter(query);
         cx.notify();
     }
@@ -540,7 +620,9 @@ impl SignalApp {
     // -------------------------------------------------------------- composing
 
     pub fn send_composed(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(conversation) = self.state.selected().copied() else { return };
+        let Some(conversation) = self.state.selected().copied() else {
+            return;
+        };
         let body = self.composer.read(cx).value().to_string();
         if body.trim().is_empty() && self.pending_attachments.is_empty() {
             return;
@@ -558,14 +640,17 @@ impl SignalApp {
         });
         self.typing_sent = None;
         self.typing_generation += 1;
-        self.composer.update(cx, |c, cx| c.set_value("", window, cx));
+        self.composer
+            .update(cx, |c, cx| c.set_value("", window, cx));
         let _ = self.db.set_draft(&conversation, None);
         self.scroller.update(cx, |s, cx| s.scroll_to_end(cx));
         cx.notify();
     }
 
     fn on_composer_changed(&mut self, _: &mut Window, cx: &mut Context<Self>) {
-        let Some(conversation) = self.state.selected().copied() else { return };
+        let Some(conversation) = self.state.selected().copied() else {
+            return;
+        };
         let empty = self.composer.read(cx).value().trim().is_empty();
         if empty {
             self.stop_typing();
@@ -577,7 +662,10 @@ impl SignalApp {
         };
         if fresh {
             self.typing_sent = Some((conversation, Instant::now()));
-            self.commands.send(BackendCommand::Typing { conversation, started: true });
+            self.commands.send(BackendCommand::Typing {
+                conversation,
+                started: true,
+            });
         }
         // stop after a pause in typing
         self.typing_generation += 1;
@@ -595,12 +683,17 @@ impl SignalApp {
 
     fn stop_typing(&mut self) {
         if let Some((conversation, _)) = self.typing_sent.take() {
-            self.commands.send(BackendCommand::Typing { conversation, started: false });
+            self.commands.send(BackendCommand::Typing {
+                conversation,
+                started: false,
+            });
         }
     }
 
     pub(crate) fn save_draft(&mut self, cx: &mut Context<Self>) {
-        let Some(id) = self.state.selected().copied() else { return };
+        let Some(id) = self.state.selected().copied() else {
+            return;
+        };
         let text = self.composer.read(cx).value().to_string();
         let draft = Some(text.as_str()).filter(|t| !t.trim().is_empty());
         if let Err(e) = self.db.set_draft(&id, draft) {
@@ -623,8 +716,13 @@ impl SignalApp {
     }
 
     pub fn react(&mut self, message_id: i64, emoji: &str, cx: &mut Context<Self>) {
-        let (Some(msg), Some(me)) = (self.state.message(message_id), self.me()) else { return };
-        let remove = msg.reactions.iter().any(|r| r.reactor == me && r.emoji == emoji);
+        let (Some(msg), Some(me)) = (self.state.message(message_id), self.me()) else {
+            return;
+        };
+        let remove = msg
+            .reactions
+            .iter()
+            .any(|r| r.reactor == me && r.emoji == emoji);
         self.commands.send(BackendCommand::React {
             conversation: msg.conversation,
             target_author: msg.author,
@@ -649,7 +747,10 @@ impl SignalApp {
 
     pub fn resend(&mut self, message_id: i64, cx: &mut Context<Self>) {
         if let Some(msg) = self.state.message(message_id) {
-            self.commands.send(BackendCommand::Resend { conversation: msg.conversation, sent_at: msg.sent_at });
+            self.commands.send(BackendCommand::Resend {
+                conversation: msg.conversation,
+                sent_at: msg.sent_at,
+            });
         }
         cx.notify();
     }
@@ -695,7 +796,11 @@ impl SignalApp {
 
     pub fn start_linking(&mut self, cx: &mut Context<Self>) {
         let name = self.device_name.read(cx).value().trim().to_string();
-        let device_name = if name.is_empty() { format!("Signal GPUI on {}", hostname()) } else { name };
+        let device_name = if name.is_empty() {
+            format!("Signal GPUI on {}", hostname())
+        } else {
+            name
+        };
         self.commands.send(BackendCommand::Link { device_name });
         self.state.account = AccountState::Linking { url: None };
         cx.notify();
@@ -720,7 +825,12 @@ impl SignalApp {
         });
     }
 
-    pub fn set_appearance(&mut self, appearance: Appearance, window: &mut Window, cx: &mut Context<Self>) {
+    pub fn set_appearance(
+        &mut self,
+        appearance: Appearance,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.appearance = appearance;
         apply_appearance(appearance, Some(window), cx);
         cx.notify();
@@ -741,9 +851,14 @@ pub fn hostname() -> String {
     std::env::var("HOSTNAME")
         .ok()
         .or_else(|| {
-            std::process::Command::new("hostname").output().ok().and_then(|o| {
-                String::from_utf8(o.stdout).ok().map(|s| s.trim().trim_end_matches(".local").to_string())
-            })
+            std::process::Command::new("hostname")
+                .output()
+                .ok()
+                .and_then(|o| {
+                    String::from_utf8(o.stdout)
+                        .ok()
+                        .map(|s| s.trim().trim_end_matches(".local").to_string())
+                })
         })
         .filter(|h| !h.is_empty())
         .unwrap_or_else(|| "Desktop".into())

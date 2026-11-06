@@ -52,20 +52,92 @@ pub fn seed(db: &mut Database, now: Millis) -> signal_core::db::Result<()> {
     let carol = ConversationId::Direct(DEMO_CAROL);
     let group = ConversationId::Group(DEMO_GROUP);
     let script: Vec<(ConversationId, Uuid, Millis, &str, bool)> = vec![
-        (bob, DEMO_BOB, now - 3 * day, "Did you get a chance to look at the proposal?", true),
-        (bob, DEMO_ME, now - 3 * day + 4 * min, "Yes! Left some comments, looks great overall", true),
+        (
+            bob,
+            DEMO_BOB,
+            now - 3 * day,
+            "Did you get a chance to look at the proposal?",
+            true,
+        ),
+        (
+            bob,
+            DEMO_ME,
+            now - 3 * day + 4 * min,
+            "Yes! Left some comments, looks great overall",
+            true,
+        ),
         (bob, DEMO_BOB, now - 3 * day + 6 * min, "Thanks 🙏", true),
-        (group, DEMO_ALICE, now - day - 90 * min, "Who's in for Saturday? Weather looks perfect ☀️", true),
-        (group, DEMO_CAROL, now - day - 80 * min, "Count me in!", true),
-        (group, DEMO_ME, now - day - 70 * min, "Me too. Meet at the trailhead at 8?", true),
-        (group, DEMO_BOB, now - 50 * min, "8 works. I'll bring snacks", false),
-        (group, DEMO_ALICE, now - 49 * min, "Perfect, see you all there", false),
-        (carol, DEMO_CAROL, now - 2 * day, "Here's the recipe I mentioned", true),
-        (carol, DEMO_ME, now - 2 * day + 2 * min, "Amazing, thank you!", true),
-        (alice, DEMO_ALICE, now - 20 * min, "Hey! Are we still on for coffee tomorrow?", true),
-        (alice, DEMO_ME, now - 18 * min, "Absolutely. 10am at the usual place?", true),
+        (
+            group,
+            DEMO_ALICE,
+            now - day - 90 * min,
+            "Who's in for Saturday? Weather looks perfect ☀️",
+            true,
+        ),
+        (
+            group,
+            DEMO_CAROL,
+            now - day - 80 * min,
+            "Count me in!",
+            true,
+        ),
+        (
+            group,
+            DEMO_ME,
+            now - day - 70 * min,
+            "Me too. Meet at the trailhead at 8?",
+            true,
+        ),
+        (
+            group,
+            DEMO_BOB,
+            now - 50 * min,
+            "8 works. I'll bring snacks",
+            false,
+        ),
+        (
+            group,
+            DEMO_ALICE,
+            now - 49 * min,
+            "Perfect, see you all there",
+            false,
+        ),
+        (
+            carol,
+            DEMO_CAROL,
+            now - 2 * day,
+            "Here's the recipe I mentioned",
+            true,
+        ),
+        (
+            carol,
+            DEMO_ME,
+            now - 2 * day + 2 * min,
+            "Amazing, thank you!",
+            true,
+        ),
+        (
+            alice,
+            DEMO_ALICE,
+            now - 20 * min,
+            "Hey! Are we still on for coffee tomorrow?",
+            true,
+        ),
+        (
+            alice,
+            DEMO_ME,
+            now - 18 * min,
+            "Absolutely. 10am at the usual place?",
+            true,
+        ),
         (alice, DEMO_ALICE, now - 17 * min, "Sounds good", true),
-        (alice, DEMO_ALICE, now - 16 * min, "I'll grab us a table by the window", false),
+        (
+            alice,
+            DEMO_ALICE,
+            now - 16 * min,
+            "I'll grab us a table by the window",
+            false,
+        ),
     ];
     for (conv, author, ts, body, read) in script {
         let outgoing = author == DEMO_ME;
@@ -78,7 +150,11 @@ pub fn seed(db: &mut Database, now: Millis) -> signal_core::db::Result<()> {
             body: body.into(),
             attachments: vec![],
             quote: None,
-            status: if outgoing { MessageStatus::Read } else { MessageStatus::Received },
+            status: if outgoing {
+                MessageStatus::Read
+            } else {
+                MessageStatus::Received
+            },
             read,
             expires_in_secs: None,
         }))?;
@@ -177,11 +253,19 @@ fn demo_reaction(
         });
     };
     match cmd {
-        BackendCommand::SendText { conversation, body, quote, attachments } => {
+        BackendCommand::SendText {
+            conversation,
+            body,
+            quote,
+            attachments,
+        } => {
             let atts = attachments
                 .iter()
                 .map(|p| signal_core::Attachment {
-                    content_type: mime_guess::from_path(p).first_or_octet_stream().essence_str().into(),
+                    content_type: mime_guess::from_path(p)
+                        .first_or_octet_stream()
+                        .essence_str()
+                        .into(),
                     file_name: p.file_name().map(|n| n.to_string_lossy().into_owned()),
                     size: std::fs::metadata(p).map(|m| m.len()).unwrap_or(0),
                     local_path: Some(p.to_string_lossy().into_owned()),
@@ -192,11 +276,36 @@ fn demo_reaction(
                 ConversationId::Direct(u) => u,
                 ConversationId::Group(_) => DEMO_ALICE,
             };
-            schedule(delay / 4, Mutation::SendStatus { conversation, sent_at: ts, status: MessageStatus::Sent });
-            schedule(delay / 2, Mutation::Receipt { from: peer, kind: ReceiptKind::Delivered, sent_ats: vec![ts] });
-            schedule(delay, Mutation::Receipt { from: peer, kind: ReceiptKind::Read, sent_ats: vec![ts] });
+            schedule(
+                delay / 4,
+                Mutation::SendStatus {
+                    conversation,
+                    sent_at: ts,
+                    status: MessageStatus::Sent,
+                },
+            );
+            schedule(
+                delay / 2,
+                Mutation::Receipt {
+                    from: peer,
+                    kind: ReceiptKind::Delivered,
+                    sent_ats: vec![ts],
+                },
+            );
+            schedule(
+                delay,
+                Mutation::Receipt {
+                    from: peer,
+                    kind: ReceiptKind::Read,
+                    sent_ats: vec![ts],
+                },
+            );
             // simulated reply
-            events(BackendEvent::Typing { conversation, who: peer, started: true });
+            events(BackendEvent::Typing {
+                conversation,
+                who: peer,
+                started: true,
+            });
             let reply = format!("You said: “{}”", body.trim());
             schedule(
                 delay * 2,
@@ -228,10 +337,23 @@ fn demo_reaction(
                 expires_in_secs: None,
             })]
         }
-        BackendCommand::Resend { conversation, sent_at } => {
-            vec![Mutation::SendStatus { conversation, sent_at, status: MessageStatus::Sent }]
+        BackendCommand::Resend {
+            conversation,
+            sent_at,
+        } => {
+            vec![Mutation::SendStatus {
+                conversation,
+                sent_at,
+                status: MessageStatus::Sent,
+            }]
         }
-        BackendCommand::React { conversation, target_author, target_sent_at, emoji, remove } => {
+        BackendCommand::React {
+            conversation,
+            target_author,
+            target_sent_at,
+            emoji,
+            remove,
+        } => {
             vec![Mutation::React {
                 conversation,
                 target_author,
@@ -242,13 +364,24 @@ fn demo_reaction(
                 at: ts,
             }]
         }
-        BackendCommand::DeleteForEveryone { conversation, sent_at } => {
-            vec![Mutation::DeleteForEveryone { conversation, author: DEMO_ME, target_sent_at: sent_at }]
+        BackendCommand::DeleteForEveryone {
+            conversation,
+            sent_at,
+        } => {
+            vec![Mutation::DeleteForEveryone {
+                conversation,
+                author: DEMO_ME,
+                target_sent_at: sent_at,
+            }]
         }
-        BackendCommand::MarkRead { conversation } => vec![Mutation::MarkConversationRead { conversation }],
+        BackendCommand::MarkRead { conversation } => {
+            vec![Mutation::MarkConversationRead { conversation }]
+        }
         BackendCommand::Unlink => {
             let _ = db; // demo data is kept; nothing to unlink
-            events(BackendEvent::Error("Unlinking is not available in demo mode".into()));
+            events(BackendEvent::Error(
+                "Unlinking is not available in demo mode".into(),
+            ));
             vec![]
         }
         BackendCommand::Link { .. }
@@ -272,7 +405,11 @@ mod tests {
         seed(&mut db, 1_000_000_000_000).unwrap();
         assert_eq!(db.all_conversations().unwrap().len(), n);
         let list = db.conversations().unwrap();
-        assert_eq!(list[0].id, ConversationId::Group(DEMO_GROUP), "pinned first");
+        assert_eq!(
+            list[0].id,
+            ConversationId::Group(DEMO_GROUP),
+            "pinned first"
+        );
         assert_eq!(list[0].unread_count, 2);
     }
 
@@ -284,8 +421,13 @@ mod tests {
             let events = events.clone();
             Arc::new(move |e| events.lock().unwrap().push(e)) as EventSink
         };
-        let handle =
-            spawn_demo(dir.path().join("demo.db"), None, sink, Duration::from_millis(40)).unwrap();
+        let handle = spawn_demo(
+            dir.path().join("demo.db"),
+            None,
+            sink,
+            Duration::from_millis(40),
+        )
+        .unwrap();
         let alice = ConversationId::Direct(DEMO_ALICE);
         handle.send(BackendCommand::SendText {
             conversation: alice,
@@ -306,19 +448,35 @@ mod tests {
         }
         handle.shutdown();
         let events = events.lock().unwrap();
-        assert!(matches!(events[0], BackendEvent::Account(AccountState::Registered(_))));
+        assert!(matches!(
+            events[0],
+            BackendEvent::Account(AccountState::Registered(_))
+        ));
         let statuses: Vec<MessageStatus> = events
             .iter()
             .filter_map(|e| match e {
-                BackendEvent::MessageUpserted(m) if m.outgoing && m.body == "ping" => Some(m.status),
+                BackendEvent::MessageUpserted(m) if m.outgoing && m.body == "ping" => {
+                    Some(m.status)
+                }
                 _ => None,
             })
             .collect();
         assert_eq!(
             statuses,
-            vec![MessageStatus::Sending, MessageStatus::Sent, MessageStatus::Delivered, MessageStatus::Read]
+            vec![
+                MessageStatus::Sending,
+                MessageStatus::Sent,
+                MessageStatus::Delivered,
+                MessageStatus::Read
+            ]
         );
-        assert!(events.iter().any(|e| matches!(e, BackendEvent::Typing { started: true, .. })));
-        assert!(events.iter().any(|e| matches!(e, BackendEvent::MessageUpserted(m) if m.body == "You said: “ping”")));
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(e, BackendEvent::Typing { started: true, .. }))
+        );
+        assert!(events.iter().any(
+            |e| matches!(e, BackendEvent::MessageUpserted(m) if m.body == "You said: “ping”")
+        ));
     }
 }

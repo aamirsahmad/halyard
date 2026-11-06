@@ -2,7 +2,10 @@
 
 use gpui_kit::{App, KeyBinding};
 
-gpui_kit::actions!(signal, [NewChat, FocusSearch, NextChat, PrevChat, CloseChat, Quit]);
+gpui_kit::actions!(
+    signal,
+    [NewChat, FocusSearch, NextChat, PrevChat, CloseChat, Quit]
+);
 
 /// Shortcuts using the platform's primary modifier: ⌘ on macOS, Ctrl elsewhere.
 #[cfg(target_os = "macos")]

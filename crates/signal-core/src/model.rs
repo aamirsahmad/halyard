@@ -276,7 +276,10 @@ mod tests {
 
     #[test]
     fn preview_for_attachments() {
-        let img = Attachment { content_type: "image/png".into(), ..Default::default() };
+        let img = Attachment {
+            content_type: "image/png".into(),
+            ..Default::default()
+        };
         assert_eq!(msg("", vec![img]).preview(), "📷 Photo");
         let file = Attachment {
             content_type: "application/pdf".into(),
@@ -284,7 +287,10 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(msg("", vec![file]).preview(), "📎 doc.pdf");
-        let anon = Attachment { content_type: "application/zip".into(), ..Default::default() };
+        let anon = Attachment {
+            content_type: "application/zip".into(),
+            ..Default::default()
+        };
         assert_eq!(anon.display_name(), "attachment.zip");
     }
 
@@ -299,14 +305,26 @@ mod tests {
     fn reaction_summary_groups() {
         let mut m = msg("hi", vec![]);
         for (i, e) in ["👍", "❤️", "👍"].iter().enumerate() {
-            m.reactions.push(Reaction { reactor: Uuid::from_u128(i as u128), emoji: e.to_string(), at: 0 });
+            m.reactions.push(Reaction {
+                reactor: Uuid::from_u128(i as u128),
+                emoji: e.to_string(),
+                at: 0,
+            });
         }
-        assert_eq!(m.reaction_summary(), vec![("👍".into(), 2), ("❤️".into(), 1)]);
+        assert_eq!(
+            m.reaction_summary(),
+            vec![("👍".into(), 2), ("❤️".into(), 1)]
+        );
     }
 
     #[test]
     fn contact_display_name_fallbacks() {
-        let mut c = Contact { uuid: Uuid::nil(), name: None, profile_name: None, phone: None };
+        let mut c = Contact {
+            uuid: Uuid::nil(),
+            name: None,
+            profile_name: None,
+            phone: None,
+        };
         assert_eq!(c.display_name(), "Unknown contact");
         c.phone = Some("+15550001".into());
         assert_eq!(c.display_name(), "+15550001");

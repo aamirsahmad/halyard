@@ -6,6 +6,8 @@ mod link;
 mod message;
 mod sidebar;
 
+pub use sidebar::{conversation_dom_id, conversation_element_id};
+
 use gpui_kit::{
     Context, InteractiveElement as _, IntoElement, ParentElement as _, Render, Styled as _, Window,
     div,
@@ -34,9 +36,17 @@ impl Render for SignalApp {
                 .on_action(cx.listener(|this, _: &NewChat, window, cx| {
                     this.set_list_mode(ListMode::NewChat, window, cx)
                 }))
-                .on_action(cx.listener(|this, _: &FocusSearch, window, cx| this.focus_search(window, cx)))
-                .on_action(cx.listener(|this, _: &NextChat, window, cx| this.select_relative(1, window, cx)))
-                .on_action(cx.listener(|this, _: &PrevChat, window, cx| this.select_relative(-1, window, cx)))
+                .on_action(
+                    cx.listener(|this, _: &FocusSearch, window, cx| this.focus_search(window, cx)),
+                )
+                .on_action(
+                    cx.listener(|this, _: &NextChat, window, cx| {
+                        this.select_relative(1, window, cx)
+                    }),
+                )
+                .on_action(cx.listener(|this, _: &PrevChat, window, cx| {
+                    this.select_relative(-1, window, cx)
+                }))
                 .on_action(cx.listener(|this, _: &CloseChat, window, cx| {
                     if this.replying_to.is_some() {
                         this.cancel_reply(cx);

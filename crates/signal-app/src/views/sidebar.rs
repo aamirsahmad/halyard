@@ -7,8 +7,8 @@ use gpui_kit::component::{Icon, IconName, Sizable as _};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AnyElement, Context, ElementId, FontWeight, InteractiveElement as _, IntoElement,
-    ParentElement as _, SharedString, StatefulInteractiveElement as _, Styled as _, Window, div,
-    px,
+    ParentElement as _, SharedString, StatefulInteractiveElement as _, Styled as _,
+    TestSupportExt as _, Window, div, px,
 };
 use signal_core::format::conversation_list_time;
 use signal_core::{ConnectionState, Conversation, ConversationId, Message, now_millis};
@@ -20,12 +20,22 @@ use crate::views::avatar::Avatar;
 
 pub const SIDEBAR_WIDTH: f32 = 320.;
 
+/// Stable element id of a conversation row (also used by UI tests).
+pub fn conversation_dom_id(id: &ConversationId) -> String {
+    format!("conversation-{id}")
+}
+
 pub fn conversation_element_id(id: &ConversationId) -> ElementId {
-    ElementId::Name(format!("conversation-{id}").into())
+    ElementId::Name(conversation_dom_id(id).into())
 }
 
 impl SignalApp {
-    pub(super) fn render_sidebar(&mut self, p: &Palette, _: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn render_sidebar(
+        &mut self,
+        p: &Palette,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let title = match self.list_mode {
             ListMode::Chats => "Chats",
             ListMode::Archived => "Archived chats",
@@ -46,7 +56,9 @@ impl SignalApp {
                         .small()
                         .icon(IconName::ArrowLeft)
                         .tooltip("Back")
-                        .on_click(cx.listener(|this, _, window, cx| this.set_list_mode(ListMode::Chats, window, cx))),
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            this.set_list_mode(ListMode::Chats, window, cx)
+                        })),
                 )
             })
             .when(self.list_mode == ListMode::Chats, |d| {
@@ -54,7 +66,13 @@ impl SignalApp {
                     d.child(Avatar::new(me.as_bytes().to_vec(), "You").size(px(28.)))
                 })
             })
-            .child(div().flex_1().text_size(px(18.)).font_weight(FontWeight::SEMIBOLD).child(title))
+            .child(
+                div()
+                    .flex_1()
+                    .text_size(px(18.))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .child(title),
+            )
             .when(self.list_mode == ListMode::Chats, |d| {
                 d.child(
                     Button::new("new-chat")
@@ -62,7 +80,9 @@ impl SignalApp {
                         .small()
                         .icon(Icon::new(Icons::SquarePen))
                         .tooltip("New chat")
-                        .on_click(cx.listener(|this, _, window, cx| this.set_list_mode(ListMode::NewChat, window, cx))),
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            this.set_list_mode(ListMode::NewChat, window, cx)
+                        })),
                 )
                 .child(self.render_main_menu(cx))
             });
@@ -72,7 +92,11 @@ impl SignalApp {
                 .id("search")
                 .small()
                 .cleanable(true)
-                .prefix(Icon::new(IconName::Search).small().text_color(p.text_secondary)),
+                .prefix(
+                    Icon::new(IconName::Search)
+                        .small()
+                        .text_color(p.text_secondary),
+                ),
         );
 
         let list: AnyElement = match self.list_mode {
@@ -94,6 +118,7 @@ impl SignalApp {
             .child(search)
             .children(self.render_connection_banner(p))
             .child(list)
+            .test_support()
             .into_any_element()
     }
 
@@ -137,9 +162,10 @@ impl SignalApp {
             ConnectionState::Disconnected => return None,
             ConnectionState::Connecting => ("Connecting…".to_string(), true),
             ConnectionState::Syncing => ("Loading messages…".to_string(), true),
-            ConnectionState::Offline { retry_in_secs, .. } => {
-                (format!("Not connected. Retrying in {retry_in_secs}s…"), false)
-            }
+            ConnectionState::Offline { retry_in_secs, .. } => (
+                format!("Not connected. Retrying in {retry_in_secs}s…"),
+                false,
+            ),
         };
         Some(
             div()
@@ -154,6 +180,7 @@ impl SignalApp {
                 .when(busy, |d| d.bg(p.hover))
                 .text_color(p.text_secondary)
                 .child(text)
+                .test_support()
                 .into_any_element(),
         )
     }
@@ -161,7 +188,12 @@ impl SignalApp {
     fn render_conversation_list(&mut self, p: &Palette, cx: &mut Context<Self>) -> AnyElement {
         let now = now_millis();
         let selected = self.state.selected().copied();
-        let visible: Vec<Conversation> = self.state.visible_conversations().into_iter().cloned().collect();
+        let visible: Vec<Conversation> = self
+            .state
+            .visible_conversations()
+            .into_iter()
+            .cloned()
+            .collect();
         let archived_count = self.state.archived_count();
         let searching = !self.state.filter().trim().is_empty();
         let mut rows: Vec<AnyElement> = Vec::new();
@@ -178,6 +210,7 @@ impl SignalApp {
                     } else {
                         "No chats yet. Start a new chat with the ✎ button."
                     })
+                    .test_support()
                     .into_any_element(),
             );
         }
@@ -202,6 +235,7 @@ impl SignalApp {
                         .text_center()
                         .text_color(p.text_secondary)
                         .child(format!("No results for “{}”", self.state.filter().trim()))
+                        .test_support()
                         .into_any_element(),
                 );
             }
@@ -220,7 +254,10 @@ impl SignalApp {
                     .cursor_pointer()
                     .hover(|s| s.bg(p.hover))
                     .child(format!("Archived chats ({archived_count})"))
-                    .on_click(cx.listener(|this, _, window, cx| this.set_list_mode(ListMode::Archived, window, cx)))
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.set_list_mode(ListMode::Archived, window, cx)
+                    }))
+                    .test_support()
                     .into_any_element(),
             );
         }
@@ -233,6 +270,7 @@ impl SignalApp {
             .px_2()
             .pb_2()
             .children(rows)
+            .test_support()
             .into_any_element()
     }
 
@@ -246,7 +284,11 @@ impl SignalApp {
     ) -> AnyElement {
         let id = conv.id;
         let unread = conv.unread_count;
-        let draft = conv.draft.clone().filter(|d| !d.trim().is_empty()).filter(|_| !selected);
+        let draft = conv
+            .draft
+            .clone()
+            .filter(|d| !d.trim().is_empty())
+            .filter(|_| !selected);
         let typing = !self.state.typing_in(&id).is_empty();
         let preview: AnyElement = if typing {
             div().italic().child("typing…").into_any_element()
@@ -258,8 +300,15 @@ impl SignalApp {
                 .child(div().truncate().child(first_line(&d)))
                 .into_any_element()
         } else {
-            let prefix = if conv.last_preview_outgoing { "You: " } else { "" };
-            div().truncate().child(format!("{prefix}{}", conv.last_preview)).into_any_element()
+            let prefix = if conv.last_preview_outgoing {
+                "You: "
+            } else {
+                ""
+            };
+            div()
+                .truncate()
+                .child(format!("{prefix}{}", conv.last_preview))
+                .into_any_element()
         };
 
         div()
@@ -273,8 +322,14 @@ impl SignalApp {
             .cursor_pointer()
             .when(selected, |d| d.bg(p.selected))
             .when(!selected, |d| d.hover(|s| s.bg(p.hover)))
-            .on_click(cx.listener(move |this, _, window, cx| this.open_conversation(id, window, cx)))
-            .child(Avatar::new(id.color_seed(), conv.title.clone()).group(id.is_group()).size(px(48.)))
+            .on_click(
+                cx.listener(move |this, _, window, cx| this.open_conversation(id, window, cx)),
+            )
+            .child(
+                Avatar::new(id.color_seed(), conv.title.clone())
+                    .group(id.is_group())
+                    .size(px(48.)),
+            )
             .child(
                 div()
                     .flex()
@@ -292,13 +347,23 @@ impl SignalApp {
                                     .flex_1()
                                     .min_w_0()
                                     .truncate()
-                                    .font_weight(if unread > 0 { FontWeight::BOLD } else { FontWeight::SEMIBOLD })
+                                    .font_weight(if unread > 0 {
+                                        FontWeight::BOLD
+                                    } else {
+                                        FontWeight::SEMIBOLD
+                                    })
                                     .child(conv.title.clone()),
                             )
                             .when(conv.muted, |d| {
-                                d.child(Icon::new(Icons::BellOff).xsmall().text_color(p.text_secondary))
+                                d.child(
+                                    Icon::new(Icons::BellOff)
+                                        .xsmall()
+                                        .text_color(p.text_secondary),
+                                )
                             })
-                            .when(conv.pinned, |d| d.child(Icon::new(Icons::Pin).xsmall().text_color(p.text_secondary)))
+                            .when(conv.pinned, |d| {
+                                d.child(Icon::new(Icons::Pin).xsmall().text_color(p.text_secondary))
+                            })
                             .child(
                                 div()
                                     .flex_none()
@@ -329,28 +394,49 @@ impl SignalApp {
                                         .h(px(20.))
                                         .px(px(6.))
                                         .rounded_full()
-                                        .bg(if conv.muted { p.text_secondary } else { p.badge })
+                                        .bg(if conv.muted {
+                                            p.text_secondary
+                                        } else {
+                                            p.badge
+                                        })
                                         .text_color(p.accent_text)
                                         .text_size(px(11.))
                                         .font_weight(FontWeight::BOLD)
                                         .flex()
                                         .items_center()
                                         .justify_center()
-                                        .child(if unread > 999 { "999+".to_string() } else { unread.to_string() }),
+                                        .child(if unread > 999 {
+                                            "999+".to_string()
+                                        } else {
+                                            unread.to_string()
+                                        }),
                                 )
                             }),
                     ),
             )
+            .test_support()
             .into_any_element()
     }
 
-    fn render_message_result(&self, m: &Message, now: i64, p: &Palette, cx: &mut Context<Self>) -> AnyElement {
+    fn render_message_result(
+        &self,
+        m: &Message,
+        now: i64,
+        p: &Palette,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let conv_id = m.conversation;
         let title = self
             .state
             .conversation(&conv_id)
             .map(|c| c.title.clone())
-            .or_else(|| self.db.conversation(&conv_id).ok().flatten().map(|c| c.title))
+            .or_else(|| {
+                self.db
+                    .conversation(&conv_id)
+                    .ok()
+                    .flatten()
+                    .map(|c| c.title)
+            })
             .unwrap_or_else(|| "Unknown".into());
         div()
             .id(ElementId::Name(format!("result-{}", m.id).into()))
@@ -362,8 +448,14 @@ impl SignalApp {
             .rounded(px(10.))
             .cursor_pointer()
             .hover(|s| s.bg(p.hover))
-            .on_click(cx.listener(move |this, _, window, cx| this.open_conversation(conv_id, window, cx)))
-            .child(Avatar::new(conv_id.color_seed(), title.clone()).group(conv_id.is_group()).size(px(36.)))
+            .on_click(
+                cx.listener(move |this, _, window, cx| this.open_conversation(conv_id, window, cx)),
+            )
+            .child(
+                Avatar::new(conv_id.color_seed(), title.clone())
+                    .group(conv_id.is_group())
+                    .size(px(36.)),
+            )
             .child(
                 div()
                     .flex()
@@ -373,7 +465,13 @@ impl SignalApp {
                     .child(
                         div()
                             .flex()
-                            .child(div().flex_1().truncate().font_weight(FontWeight::SEMIBOLD).child(title))
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .truncate()
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .child(title),
+                            )
                             .child(
                                 div()
                                     .text_size(px(12.))
@@ -381,8 +479,15 @@ impl SignalApp {
                                     .child(conversation_list_time(m.sent_at, now)),
                             ),
                     )
-                    .child(div().truncate().text_size(px(13.)).text_color(p.text_secondary).child(m.preview())),
+                    .child(
+                        div()
+                            .truncate()
+                            .text_size(px(13.))
+                            .text_color(p.text_secondary)
+                            .child(m.preview()),
+                    ),
             )
+            .test_support()
             .into_any_element()
     }
 
@@ -397,6 +502,7 @@ impl SignalApp {
                     .text_center()
                     .text_color(p.text_secondary)
                     .child("No contacts found. Contacts sync from your phone.")
+                    .test_support()
                     .into_any_element(),
             );
         }
@@ -413,9 +519,16 @@ impl SignalApp {
                     .rounded(px(10.))
                     .cursor_pointer()
                     .hover(|s| s.bg(p.hover))
-                    .on_click(cx.listener(move |this, _, window, cx| this.open_conversation(id, window, cx)))
-                    .child(Avatar::new(id.color_seed(), c.title.clone()).group(id.is_group()).size(px(36.)))
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.open_conversation(id, window, cx)
+                    }))
+                    .child(
+                        Avatar::new(id.color_seed(), c.title.clone())
+                            .group(id.is_group())
+                            .size(px(36.)),
+                    )
                     .child(div().flex_1().truncate().child(c.title.clone()))
+                    .test_support()
                     .into_any_element(),
             );
         }
@@ -426,6 +539,7 @@ impl SignalApp {
             .overflow_y_scroll()
             .px_2()
             .children(rows)
+            .test_support()
             .into_any_element()
     }
 }

@@ -63,7 +63,10 @@ fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Option<Args>, St
 fn init_logging() {
     let filter = tracing_subscriber::EnvFilter::try_from_env("SIGNAL_LOG")
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info,libsignal=warn,presage=info"));
-    tracing_subscriber::fmt().with_writer(std::io::stderr).with_env_filter(filter).init();
+    tracing_subscriber::fmt()
+        .with_writer(std::io::stderr)
+        .with_env_filter(filter)
+        .init();
 }
 
 fn default_data_dir() -> anyhow::Result<PathBuf> {
@@ -84,9 +87,12 @@ fn main() -> anyhow::Result<()> {
     };
     let root = if args.demo { root.join("demo") } else { root };
     let paths = DataPaths::new(&root);
-    let key = paths.load_or_create_db_key().context("failed to load the database key")?;
+    let key = paths
+        .load_or_create_db_key()
+        .context("failed to load the database key")?;
     // Open (and migrate) the message database before the backend starts.
-    let db = Database::open(paths.app_db(), Some(&key)).context("failed to open the message database")?;
+    let db = Database::open(paths.app_db(), Some(&key))
+        .context("failed to open the message database")?;
     tracing::info!(data_dir = %root.display(), demo = args.demo, "starting");
 
     let (tx, rx) = futures::channel::mpsc::unbounded::<BackendEvent>();
@@ -94,10 +100,26 @@ fn main() -> anyhow::Result<()> {
         let _ = tx.unbounded_send(event);
     });
     let backend = if args.demo {
-        signal_backend::demo::spawn_demo(paths.app_db(), Some(key), sink, Duration::from_millis(900))?
+        signal_backend::demo::spawn_demo(
+            paths.app_db(),
+            Some(key),
+            sink,
+            Duration::from_millis(900),
+        )?
     } else {
-        let servers = if args.staging { SignalServers::Staging } else { SignalServers::Production };
-        signal_backend::spawn(BackendConfig { paths, db_key: key, servers }, sink)?
+        let servers = if args.staging {
+            SignalServers::Staging
+        } else {
+            SignalServers::Production
+        };
+        signal_backend::spawn(
+            BackendConfig {
+                paths,
+                db_key: key,
+                servers,
+            },
+            sink,
+        )?
     };
 
     gpui_kit::application().with_assets(Assets).run(move |cx| {
@@ -111,8 +133,15 @@ fn main() -> anyhow::Result<()> {
         .detach();
 
         let options = WindowOptions {
-            titlebar: Some(TitlebarOptions { title: Some("Signal".into()), ..Default::default() }),
-            window_bounds: Some(WindowBounds::Windowed(Bounds::centered(None, size(px(1120.), px(780.)), cx))),
+            titlebar: Some(TitlebarOptions {
+                title: Some("Signal".into()),
+                ..Default::default()
+            }),
+            window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
+                None,
+                size(px(1120.), px(780.)),
+                cx,
+            ))),
             window_min_size: Some(size(px(760.), px(480.))),
             app_id: Some("org.signal-gpui.Signal".into()),
             ..Default::default()
@@ -120,7 +149,8 @@ fn main() -> anyhow::Result<()> {
         let opened = gpui_kit::open_window(options, cx, move |window, cx| {
             apply_appearance(Appearance::System, Some(window), cx);
             cx.new(|cx| {
-                let mut app = SignalApp::new(db, Rc::new(backend), Rc::new(DesktopNotifier), window, cx);
+                let mut app =
+                    SignalApp::new(db, Rc::new(backend), Rc::new(DesktopNotifier), window, cx);
                 app.listen(rx, window, cx);
                 app
             })
@@ -144,7 +174,9 @@ mod tests {
     #[test]
     fn parses_flags() {
         assert_eq!(parse(&[]).unwrap(), Some(Args::default()));
-        let a = parse(&["--demo", "--data-dir", "/tmp/x", "--staging"]).unwrap().unwrap();
+        let a = parse(&["--demo", "--data-dir", "/tmp/x", "--staging"])
+            .unwrap()
+            .unwrap();
         assert!(a.demo && a.staging);
         assert_eq!(a.data_dir, Some(PathBuf::from("/tmp/x")));
         assert_eq!(parse(&["--help"]).unwrap(), None);

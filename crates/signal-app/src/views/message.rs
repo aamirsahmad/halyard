@@ -6,8 +6,8 @@ use gpui_kit::component::{Icon, Sizable as _};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AnyElement, App, ElementId, FontWeight, InteractiveElement as _, IntoElement, ObjectFit,
-    ParentElement as _, StatefulInteractiveElement as _, Styled as _, StyledImage as _, WeakEntity,
-    Window, div, img, px,
+    ParentElement as _, StatefulInteractiveElement as _, Styled as _, StyledImage as _,
+    TestSupportExt as _, WeakEntity, Window, div, img, px,
 };
 use signal_core::format::{file_size, message_time};
 use signal_core::timeline::{TimelineItem, TimelineMessage};
@@ -68,10 +68,18 @@ fn render_message(
 ) -> AnyElement {
     let outgoing = m.outgoing;
     let show_avatar_column = data.is_group && !outgoing;
-    let author_name = data.names.get(&m.author).cloned().unwrap_or_else(|| "Unknown contact".into());
+    let author_name = data
+        .names
+        .get(&m.author)
+        .cloned()
+        .unwrap_or_else(|| "Unknown contact".into());
     let author_color = avatar::color_for(m.author.as_bytes());
     let (bg, fg, meta) = if outgoing {
-        (p.bubble_outgoing, p.bubble_outgoing_text, p.bubble_outgoing_meta)
+        (
+            p.bubble_outgoing,
+            p.bubble_outgoing_text,
+            p.bubble_outgoing_meta,
+        )
     } else {
         (p.bubble_incoming, p.bubble_incoming_text, p.text_secondary)
     };
@@ -79,9 +87,19 @@ fn render_message(
     let small = px(GROUPED_RADIUS);
     // grouped bubbles get tight corners on the sender's side, like Signal
     let (tl, tr, bl, br) = if outgoing {
-        (big, if tm.first_in_group { big } else { small }, big, if tm.last_in_group { big } else { small })
+        (
+            big,
+            if tm.first_in_group { big } else { small },
+            big,
+            if tm.last_in_group { big } else { small },
+        )
     } else {
-        (if tm.first_in_group { big } else { small }, big, if tm.last_in_group { big } else { small }, big)
+        (
+            if tm.first_in_group { big } else { small },
+            big,
+            if tm.last_in_group { big } else { small },
+            big,
+        )
     };
     let id = m.id;
 
@@ -106,7 +124,11 @@ fn render_message(
             div()
                 .text_size(px(13.))
                 .font_weight(FontWeight::SEMIBOLD)
-                .text_color(hex(if p.dark { author_color.bg } else { author_color.fg }))
+                .text_color(hex(if p.dark {
+                    author_color.bg
+                } else {
+                    author_color.fg
+                }))
                 .child(author_name.clone()),
         );
     }
@@ -122,7 +144,10 @@ fn render_message(
             let quoted_author = if Some(q.author) == data.me {
                 "You".to_string()
             } else {
-                data.names.get(&q.author).cloned().unwrap_or_else(|| "Unknown contact".into())
+                data.names
+                    .get(&q.author)
+                    .cloned()
+                    .unwrap_or_else(|| "Unknown contact".into())
             };
             bubble = bubble.child(
                 div()
@@ -131,9 +156,22 @@ fn render_message(
                     .p_2()
                     .rounded(px(8.))
                     .border_l_4()
-                    .border_color(if outgoing { p.bubble_outgoing_text } else { p.accent })
-                    .bg(if outgoing { p.quote_outgoing } else { p.quote_incoming })
-                    .child(div().text_size(px(12.)).font_weight(FontWeight::SEMIBOLD).child(quoted_author))
+                    .border_color(if outgoing {
+                        p.bubble_outgoing_text
+                    } else {
+                        p.accent
+                    })
+                    .bg(if outgoing {
+                        p.quote_outgoing
+                    } else {
+                        p.quote_incoming
+                    })
+                    .child(
+                        div()
+                            .text_size(px(12.))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child(quoted_author),
+                    )
                     .child(div().text_size(px(13.)).line_clamp(3).child(q.text.clone())),
             );
         }
@@ -141,7 +179,12 @@ fn render_message(
             bubble = bubble.child(render_attachment(id, i, a, fg, meta));
         }
         if !m.body.is_empty() {
-            bubble = bubble.child(div().text_size(px(14.)).line_height(px(20.)).child(m.body.clone()));
+            bubble = bubble.child(
+                div()
+                    .text_size(px(14.))
+                    .line_height(px(20.))
+                    .child(m.body.clone()),
+            );
         }
     }
 
@@ -155,7 +198,9 @@ fn render_message(
             .text_size(px(11.))
             .text_color(meta)
             .when(m.edited_at.is_some() && !m.deleted, |d| d.child("Edited"))
-            .when_some(m.expires_in_secs, |d, _| d.child(Icon::new(Icons::Clock).xsmall()))
+            .when_some(m.expires_in_secs, |d, _| {
+                d.child(Icon::new(Icons::Clock).xsmall())
+            })
             .child(message_time(m.sent_at, now_millis()))
             .when(outgoing, |d| d.child(status_icon(m.status, meta))),
     );
@@ -167,11 +212,13 @@ fn render_message(
         let has_text = !m.body.is_empty();
         move |menu, _, _| {
             let a = app.clone();
-            let mut menu = menu.item(PopupMenuItem::new("Reply").icon(Icon::new(Icons::Reply)).on_click(
-                move |_, window, cx| {
-                    let _ = a.update(cx, |this, cx| this.reply_to(id, window, cx));
-                },
-            ));
+            let mut menu = menu.item(
+                PopupMenuItem::new("Reply")
+                    .icon(Icon::new(Icons::Reply))
+                    .on_click(move |_, window, cx| {
+                        let _ = a.update(cx, |this, cx| this.reply_to(id, window, cx));
+                    }),
+            );
             if has_text {
                 let a = app.clone();
                 menu = menu.item(PopupMenuItem::new("Copy text").on_click(move |_, _, cx| {
@@ -181,24 +228,30 @@ fn render_message(
             menu = menu.separator();
             for emoji in QUICK_REACTIONS {
                 let a = app.clone();
-                menu = menu.item(PopupMenuItem::new(format!("React {emoji}")).on_click(move |_, _, cx| {
-                    let _ = a.update(cx, |this, cx| this.react(id, emoji, cx));
-                }));
+                menu = menu.item(PopupMenuItem::new(format!("React {emoji}")).on_click(
+                    move |_, _, cx| {
+                        let _ = a.update(cx, |this, cx| this.react(id, emoji, cx));
+                    },
+                ));
             }
             if failed {
                 let a = app.clone();
-                menu = menu.separator().item(PopupMenuItem::new("Retry sending").on_click(move |_, _, cx| {
-                    let _ = a.update(cx, |this, cx| this.resend(id, cx));
-                }));
+                menu = menu
+                    .separator()
+                    .item(
+                        PopupMenuItem::new("Retry sending").on_click(move |_, _, cx| {
+                            let _ = a.update(cx, |this, cx| this.resend(id, cx));
+                        }),
+                    );
             }
             if deletable {
                 let a = app.clone();
                 menu = menu.separator().item(
-                    PopupMenuItem::new("Delete for everyone").icon(Icon::new(Icons::Trash)).on_click(
-                        move |_, _, cx| {
+                    PopupMenuItem::new("Delete for everyone")
+                        .icon(Icon::new(Icons::Trash))
+                        .on_click(move |_, _, cx| {
                             let _ = a.update(cx, |this, cx| this.delete_for_everyone(id, cx));
-                        },
-                    ),
+                        }),
                 );
             }
             menu
@@ -313,12 +366,15 @@ fn render_message(
         .when(!tm.last_in_group, |d| d.pb(px(2.)))
         .when(show_avatar_column, |d| {
             d.child(if tm.last_in_group {
-                Avatar::new(m.author.as_bytes().to_vec(), author_name).size(px(28.)).into_any_element()
+                Avatar::new(m.author.as_bytes().to_vec(), author_name)
+                    .size(px(28.))
+                    .into_any_element()
             } else {
                 div().w(px(28.)).flex_none().into_any_element()
             })
         })
         .child(column)
+        .test_support()
         .into_any_element()
 }
 
@@ -332,12 +388,20 @@ fn status_icon(status: MessageStatus, color: gpui_kit::Hsla) -> AnyElement {
     };
     div()
         .flex()
-        .when(status == MessageStatus::Read, |d| d.font_weight(FontWeight::BOLD))
+        .when(status == MessageStatus::Read, |d| {
+            d.font_weight(FontWeight::BOLD)
+        })
         .child(icon.xsmall().text_color(color))
         .into_any_element()
 }
 
-fn render_attachment(msg_id: i64, index: usize, a: &Attachment, fg: gpui_kit::Hsla, meta: gpui_kit::Hsla) -> AnyElement {
+fn render_attachment(
+    msg_id: i64,
+    index: usize,
+    a: &Attachment,
+    fg: gpui_kit::Hsla,
+    meta: gpui_kit::Hsla,
+) -> AnyElement {
     if let (true, Some(path)) = (a.is_image(), a.local_path.as_ref()) {
         let (w, h) = match (a.width, a.height) {
             (Some(w), Some(h)) if w > 0 && h > 0 => {
@@ -347,16 +411,26 @@ fn render_attachment(msg_id: i64, index: usize, a: &Attachment, fg: gpui_kit::Hs
             _ => (MAX_IMAGE, MAX_IMAGE * 0.75),
         };
         return div()
-            .id(ElementId::Name(format!("attachment-{msg_id}-{index}").into()))
+            .id(ElementId::Name(
+                format!("attachment-{msg_id}-{index}").into(),
+            ))
             .rounded(px(12.))
             .overflow_hidden()
-            .child(img(std::path::PathBuf::from(path)).w(px(w)).h(px(h)).object_fit(ObjectFit::Cover))
+            .child(
+                img(std::path::PathBuf::from(path))
+                    .w(px(w))
+                    .h(px(h))
+                    .object_fit(ObjectFit::Cover),
+            )
+            .test_support()
             .into_any_element();
     }
     let downloading = a.local_path.is_none();
     let path = a.local_path.clone();
     div()
-        .id(ElementId::Name(format!("attachment-{msg_id}-{index}").into()))
+        .id(ElementId::Name(
+            format!("attachment-{msg_id}-{index}").into(),
+        ))
         .flex()
         .items_center()
         .gap_2()
@@ -377,19 +451,38 @@ fn render_attachment(msg_id: i64, index: usize, a: &Attachment, fg: gpui_kit::Hs
                 .justify_center()
                 .border_1()
                 .border_color(meta)
-                .child(Icon::new(if downloading { Icons::Download } else { Icons::Paperclip }).small().text_color(fg)),
+                .child(
+                    Icon::new(if downloading {
+                        Icons::Download
+                    } else {
+                        Icons::Paperclip
+                    })
+                    .small()
+                    .text_color(fg),
+                ),
         )
         .child(
             div()
                 .flex()
                 .flex_col()
                 .min_w_0()
-                .child(div().truncate().font_weight(FontWeight::MEDIUM).child(a.display_name()))
-                .child(div().text_size(px(12.)).text_color(meta).child(if downloading {
-                    format!("{} · Downloading…", file_size(a.size))
-                } else {
-                    file_size(a.size)
-                })),
+                .child(
+                    div()
+                        .truncate()
+                        .font_weight(FontWeight::MEDIUM)
+                        .child(a.display_name()),
+                )
+                .child(
+                    div()
+                        .text_size(px(12.))
+                        .text_color(meta)
+                        .child(if downloading {
+                            format!("{} · Downloading…", file_size(a.size))
+                        } else {
+                            file_size(a.size)
+                        }),
+                ),
         )
+        .test_support()
         .into_any_element()
 }

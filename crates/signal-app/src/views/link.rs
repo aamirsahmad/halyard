@@ -7,7 +7,7 @@ use gpui_kit::component::{Icon, Sizable as _};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AnyElement, Context, FontWeight, InteractiveElement as _, IntoElement, ParentElement as _,
-    Pixels, Styled as _, Window, div, px, rgb,
+    Pixels, Styled as _, TestSupportExt as _, Window, div, px, rgb,
 };
 use signal_core::AccountState;
 
@@ -57,21 +57,31 @@ fn render_qr(data: &str, size: Pixels) -> AnyElement {
         .flex()
         .flex_col()
         .children(rows.into_iter().map(move |runs| {
-            div().relative().h(module).w_full().children(runs.into_iter().map(move |(start, len)| {
-                div()
-                    .absolute()
-                    .top_0()
-                    .left(module * start as f32)
-                    .w(module * len as f32)
-                    .h(module)
-                    .bg(rgb(0x000000))
-            }))
+            div()
+                .relative()
+                .h(module)
+                .w_full()
+                .children(runs.into_iter().map(move |(start, len)| {
+                    div()
+                        .absolute()
+                        .top_0()
+                        .left(module * start as f32)
+                        .w(module * len as f32)
+                        .h(module)
+                        .bg(rgb(0x000000))
+                }))
         }))
+        .test_support()
         .into_any_element()
 }
 
 impl SignalApp {
-    pub(super) fn render_link_screen(&mut self, p: &Palette, _: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn render_link_screen(
+        &mut self,
+        p: &Palette,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let (qr, status): (AnyElement, Option<AnyElement>) = match &self.state.account {
             AccountState::Linking { url: Some(url) } => (render_qr(url, px(260.)), None),
             AccountState::Linking { url: None } => (
@@ -95,6 +105,7 @@ impl SignalApp {
                         .text_color(p.danger)
                         .text_size(px(13.))
                         .child(err.clone())
+                        .test_support()
                         .into_any_element(),
                 ),
             ),
@@ -107,7 +118,12 @@ impl SignalApp {
             .flex_col()
             .gap_3()
             .max_w(px(380.))
-            .child(div().text_size(px(24.)).font_weight(FontWeight::SEMIBOLD).child("Link this device to your phone"))
+            .child(
+                div()
+                    .text_size(px(24.))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .child("Link this device to your phone"),
+            )
             .child(step(1, "Open Signal on your phone", p))
             .child(step(2, "Tap Settings, then tap Linked devices", p))
             .child(step(3, "Tap Link new device and scan this code", p))
@@ -118,7 +134,12 @@ impl SignalApp {
                         .flex_col()
                         .gap_1()
                         .mt_4()
-                        .child(div().text_size(px(12.)).text_color(p.text_secondary).child("Device name"))
+                        .child(
+                            div()
+                                .text_size(px(12.))
+                                .text_color(p.text_secondary)
+                                .child("Device name"),
+                        )
                         .child(Input::new(&self.device_name).id("device-name")),
                 )
                 .child(
@@ -126,11 +147,13 @@ impl SignalApp {
                         .primary()
                         .large()
                         .icon(Icon::new(Icons::Smartphone))
-                        .label(if matches!(self.state.account, AccountState::LinkFailed(_)) {
-                            "Try again"
-                        } else {
-                            "Show linking code"
-                        })
+                        .label(
+                            if matches!(self.state.account, AccountState::LinkFailed(_)) {
+                                "Try again"
+                            } else {
+                                "Show linking code"
+                            },
+                        )
                         .on_click(cx.listener(|this, _, _, cx| this.start_linking(cx))),
                 )
             })
@@ -155,6 +178,7 @@ impl SignalApp {
             .bg(p.background)
             .child(qr)
             .child(steps)
+            .test_support()
             .into_any_element()
     }
 }

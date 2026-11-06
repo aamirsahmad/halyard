@@ -5,7 +5,9 @@ use chrono::{DateTime, Datelike, Local, NaiveDate, TimeZone};
 use crate::model::Millis;
 
 fn to_local<Tz: TimeZone>(ms: Millis, tz: &Tz) -> DateTime<Tz> {
-    tz.timestamp_millis_opt(ms).single().unwrap_or_else(|| tz.timestamp_millis_opt(0).unwrap())
+    tz.timestamp_millis_opt(ms)
+        .single()
+        .unwrap_or_else(|| tz.timestamp_millis_opt(0).unwrap())
 }
 
 /// Short timestamp for the conversation list (`Now`, `5m`, `14:02`, `Mon`, `Mar 3`, `3/4/2023`).
@@ -96,7 +98,11 @@ pub fn file_size(bytes: u64) -> String {
         v /= 1024.0;
         unit += 1;
     }
-    if unit == 0 { format!("{bytes} B") } else { format!("{v:.1} {}", UNITS[unit]) }
+    if unit == 0 {
+        format!("{bytes} B")
+    } else {
+        format!("{v:.1} {}", UNITS[unit])
+    }
 }
 
 trait Pipe: Sized {
@@ -112,7 +118,9 @@ mod tests {
     use chrono::Utc;
 
     fn ms(y: i32, mo: u32, d: u32, h: u32, mi: u32) -> Millis {
-        Utc.with_ymd_and_hms(y, mo, d, h, mi, 0).unwrap().timestamp_millis()
+        Utc.with_ymd_and_hms(y, mo, d, h, mi, 0)
+            .unwrap()
+            .timestamp_millis()
     }
 
     #[test]

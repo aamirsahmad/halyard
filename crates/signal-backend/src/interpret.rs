@@ -27,7 +27,11 @@ pub struct Ctx<'a> {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Output {
     Mutation(Mutation),
-    Typing { conversation: ConversationId, who: Uuid, started: bool },
+    Typing {
+        conversation: ConversationId,
+        who: Uuid,
+        started: bool,
+    },
     /// A message referenced this group; make sure its metadata is known.
     GroupSeen(GroupKey),
 }
@@ -39,7 +43,8 @@ pub fn parse_aci(text: Option<&str>, binary: Option<&[u8]>) -> Option<Uuid> {
             return Some(sid.raw_uuid());
         }
     }
-    text.and_then(ServiceId::parse_from_service_id_string).map(|s| s.raw_uuid())
+    text.and_then(ServiceId::parse_from_service_id_string)
+        .map(|s| s.raw_uuid())
 }
 
 pub fn conversation_of(thread: &Thread) -> ConversationId {
@@ -66,7 +71,9 @@ pub fn attachment_from_pointer(p: &AttachmentPointer) -> Attachment {
 }
 
 pub fn pointer_from_attachment(a: &Attachment) -> Option<AttachmentPointer> {
-    a.pointer.as_deref().and_then(|b| AttachmentPointer::decode(b).ok())
+    a.pointer
+        .as_deref()
+        .and_then(|b| AttachmentPointer::decode(b).ok())
 }
 
 fn quote_from_proto(q: &data_message::Quote) -> Option<Quote> {
@@ -93,8 +100,13 @@ fn data_message(
     let sent_at = dm.timestamp.map(|t| t as Millis).unwrap_or(fallback_ts);
 
     if let Some(r) = &dm.reaction {
-        let target = parse_aci(r.target_author_aci.as_deref(), r.target_author_aci_binary.as_deref());
-        if let (Some(target_author), Some(ts), Some(emoji)) = (target, r.target_sent_timestamp, &r.emoji) {
+        let target = parse_aci(
+            r.target_author_aci.as_deref(),
+            r.target_author_aci_binary.as_deref(),
+        );
+        if let (Some(target_author), Some(ts), Some(emoji)) =
+            (target, r.target_sent_timestamp, &r.emoji)
+        {
             out.push(Output::Mutation(Mutation::React {
                 conversation,
                 target_author,
@@ -108,7 +120,10 @@ fn data_message(
         return;
     }
 
-    if let Some(data_message::Delete { target_sent_timestamp: Some(ts) }) = &dm.delete {
+    if let Some(data_message::Delete {
+        target_sent_timestamp: Some(ts),
+    }) = &dm.delete
+    {
         out.push(Output::Mutation(Mutation::DeleteForEveryone {
             conversation,
             author,
@@ -132,13 +147,22 @@ fn data_message(
         body,
         attachments,
         quote: dm.quote.as_ref().and_then(quote_from_proto),
-        status: if outgoing { MessageStatus::Sent } else { MessageStatus::Received },
+        status: if outgoing {
+            MessageStatus::Sent
+        } else {
+            MessageStatus::Received
+        },
         read: outgoing,
         expires_in_secs: dm.expire_timer.filter(|t| *t > 0),
     })));
 }
 
-fn edit_message(edit: &EditMessage, conversation: ConversationId, author: Uuid, out: &mut Vec<Output>) {
+fn edit_message(
+    edit: &EditMessage,
+    conversation: ConversationId,
+    author: Uuid,
+    out: &mut Vec<Output>,
+) {
     let (Some(target), Some(dm)) = (edit.target_sent_timestamp, &edit.data_message) else {
         return;
     };
@@ -147,7 +171,10 @@ fn edit_message(edit: &EditMessage, conversation: ConversationId, author: Uuid, 
         author,
         target_sent_at: target as Millis,
         body: dm.body.clone().unwrap_or_default(),
-        edited_at: dm.timestamp.map(|t| t as Millis).unwrap_or(target as Millis),
+        edited_at: dm
+            .timestamp
+            .map(|t| t as Millis)
+            .unwrap_or(target as Millis),
     }));
 }
 
@@ -166,11 +193,21 @@ pub fn interpret(content: &Content, ctx: &Ctx) -> Vec<Output> {
     let conversation = conversation_of(&thread);
 
     match &content.body {
-        ContentBody::DataMessage(dm) => {
-            data_message(dm, conversation, sender, sender == ctx.me, fallback_ts, ctx, &mut out)
-        }
+        ContentBody::DataMessage(dm) => data_message(
+            dm,
+            conversation,
+            sender,
+            sender == ctx.me,
+            fallback_ts,
+            ctx,
+            &mut out,
+        ),
         ContentBody::EditMessage(edit) => edit_message(edit, conversation, sender, &mut out),
-        ContentBody::SynchronizeMessage(SyncMessage { content: Some(sync), read, .. }) => {
+        ContentBody::SynchronizeMessage(SyncMessage {
+            content: Some(sync),
+            read,
+            ..
+        }) => {
             match sync {
                 sync_message::Content::Sent(sent) => {
                     if let Some(dm) = &sent.message {
@@ -185,9 +222,11 @@ pub fn interpret(content: &Content, ctx: &Ctx) -> Vec<Output> {
             }
             read_sync(read, &mut out);
         }
-        ContentBody::SynchronizeMessage(SyncMessage { content: None, read, .. }) => {
-            read_sync(read, &mut out)
-        }
+        ContentBody::SynchronizeMessage(SyncMessage {
+            content: None,
+            read,
+            ..
+        }) => read_sync(read, &mut out),
         ContentBody::ReceiptMessage(ReceiptMessage { r#type, timestamp }) => {
             let kind = match r#type.and_then(|t| receipt_message::Type::try_from(t).ok()) {
                 Some(receipt_message::Type::Delivery) | None => ReceiptKind::Delivered,
@@ -202,7 +241,9 @@ pub fn interpret(content: &Content, ctx: &Ctx) -> Vec<Output> {
                 }));
             }
         }
-        ContentBody::TypingMessage(TypingMessage { action, group_id, .. }) => {
+        ContentBody::TypingMessage(TypingMessage {
+            action, group_id, ..
+        }) => {
             if sender != ctx.me {
                 let conversation = match group_id.as_deref() {
                     Some(id) if !id.is_empty() => match (ctx.group_by_id)(id) {
@@ -213,7 +254,11 @@ pub fn interpret(content: &Content, ctx: &Ctx) -> Vec<Output> {
                 };
                 let started = action.and_then(|a| typing_message::Action::try_from(a).ok())
                     == Some(typing_message::Action::Started);
-                out.push(Output::Typing { conversation, who: sender, started });
+                out.push(Output::Typing {
+                    conversation,
+                    who: sender,
+                    started,
+                });
             }
         }
         // calls are out of scope for now; stories, null messages, etc. are ignored
@@ -224,10 +269,14 @@ pub fn interpret(content: &Content, ctx: &Ctx) -> Vec<Output> {
 
 fn read_sync(read: &[sync_message::Read], out: &mut Vec<Output>) {
     for r in read {
-        if let (Some(author), Some(ts)) =
-            (parse_aci(r.sender_aci.as_deref(), r.sender_aci_binary.as_deref()), r.timestamp)
-        {
-            out.push(Output::Mutation(Mutation::ReadSync { author, sent_at: ts as Millis }));
+        if let (Some(author), Some(ts)) = (
+            parse_aci(r.sender_aci.as_deref(), r.sender_aci_binary.as_deref()),
+            r.timestamp,
+        ) {
+            out.push(Output::Mutation(Mutation::ReadSync {
+                author,
+                sent_at: ts as Millis,
+            }));
         }
     }
 }
@@ -272,7 +321,14 @@ mod tests {
     }
 
     fn run(c: &Content) -> Vec<Output> {
-        interpret(c, &Ctx { me: ME, received_at: 42, group_by_id: &no_groups })
+        interpret(
+            c,
+            &Ctx {
+                me: ME,
+                received_at: 42,
+                group_by_id: &no_groups,
+            },
+        )
     }
 
     fn only_mutation(out: Vec<Output>) -> Mutation {
@@ -288,13 +344,19 @@ mod tests {
     }
 
     fn text(ts: u64, body: &str) -> DataMessage {
-        DataMessage { body: Some(body.into()), timestamp: Some(ts), ..Default::default() }
+        DataMessage {
+            body: Some(body.into()),
+            timestamp: Some(ts),
+            ..Default::default()
+        }
     }
 
     #[test]
     fn incoming_direct_text() {
         let m = only_mutation(run(&content(ALICE, text(100, "hello"))));
-        let Mutation::InsertMessage(m) = m else { panic!() };
+        let Mutation::InsertMessage(m) = m else {
+            panic!()
+        };
         assert_eq!(m.conversation, ConversationId::Direct(ALICE));
         assert_eq!(m.author, ALICE);
         assert_eq!(m.sent_at, 100);
@@ -306,7 +368,10 @@ mod tests {
     #[test]
     fn incoming_group_text_with_quote_and_timer() {
         let mut dm = text(100, "re");
-        dm.group_v2 = Some(GroupContextV2 { master_key: Some(GROUP.to_vec()), ..Default::default() });
+        dm.group_v2 = Some(GroupContextV2 {
+            master_key: Some(GROUP.to_vec()),
+            ..Default::default()
+        });
         dm.expire_timer = Some(3600);
         dm.quote = Some(data_message::Quote {
             id: Some(50),
@@ -316,9 +381,18 @@ mod tests {
         });
         let out = run(&content(ALICE, dm));
         assert!(out.contains(&Output::GroupSeen(GroupKey(GROUP))));
-        let Mutation::InsertMessage(m) = only_mutation(out) else { panic!() };
+        let Mutation::InsertMessage(m) = only_mutation(out) else {
+            panic!()
+        };
         assert_eq!(m.conversation, ConversationId::Group(GroupKey(GROUP)));
-        assert_eq!(m.quote, Some(Quote { author: BOB, sent_at: 50, text: "orig".into() }));
+        assert_eq!(
+            m.quote,
+            Some(Quote {
+                author: BOB,
+                sent_at: 50,
+                text: "orig".into()
+            })
+        );
         assert_eq!(m.expires_in_secs, Some(3600));
     }
 
@@ -334,7 +408,9 @@ mod tests {
             key: Some(vec![1; 64]),
             ..Default::default()
         });
-        let Mutation::InsertMessage(m) = only_mutation(run(&content(ALICE, dm))) else { panic!() };
+        let Mutation::InsertMessage(m) = only_mutation(run(&content(ALICE, dm))) else {
+            panic!()
+        };
         let a = &m.attachments[0];
         assert_eq!(a.content_type, "image/png");
         assert_eq!(a.size, 2048);
@@ -346,7 +422,11 @@ mod tests {
 
     #[test]
     fn empty_and_control_messages_are_ignored() {
-        let dm = DataMessage { profile_key: Some(vec![1; 32]), timestamp: Some(1), ..Default::default() };
+        let dm = DataMessage {
+            profile_key: Some(vec![1; 32]),
+            timestamp: Some(1),
+            ..Default::default()
+        };
         assert!(run(&content(ALICE, dm)).is_empty());
         assert!(run(&content(ALICE, text(1, "   "))).is_empty());
     }
@@ -382,18 +462,27 @@ mod tests {
     fn delete_for_everyone() {
         let dm = DataMessage {
             timestamp: Some(200),
-            delete: Some(data_message::Delete { target_sent_timestamp: Some(100) }),
+            delete: Some(data_message::Delete {
+                target_sent_timestamp: Some(100),
+            }),
             ..Default::default()
         };
         assert_eq!(
             only_mutation(run(&content(ALICE, dm))),
-            Mutation::DeleteForEveryone { conversation: ConversationId::Direct(ALICE), author: ALICE, target_sent_at: 100 }
+            Mutation::DeleteForEveryone {
+                conversation: ConversationId::Direct(ALICE),
+                author: ALICE,
+                target_sent_at: 100
+            }
         );
     }
 
     #[test]
     fn edit_message() {
-        let edit = EditMessage { target_sent_timestamp: Some(100), data_message: Some(text(150, "new")) };
+        let edit = EditMessage {
+            target_sent_timestamp: Some(100),
+            data_message: Some(text(150, "new")),
+        };
         assert_eq!(
             only_mutation(run(&content(ALICE, edit))),
             Mutation::Edit {
@@ -417,7 +506,9 @@ mod tests {
             })),
             ..Default::default()
         };
-        let Mutation::InsertMessage(m) = only_mutation(run(&content(ME, sync))) else { panic!() };
+        let Mutation::InsertMessage(m) = only_mutation(run(&content(ME, sync))) else {
+            panic!()
+        };
         assert_eq!(m.conversation, ConversationId::Direct(BOB));
         assert_eq!(m.author, ME);
         assert!(m.outgoing && m.read);
@@ -428,38 +519,78 @@ mod tests {
     fn read_sync() {
         let sync = SyncMessage {
             read: vec![
-                sync_message::Read { sender_aci: Some(ALICE.to_string()), timestamp: Some(10), ..Default::default() },
-                sync_message::Read { sender_aci: None, timestamp: Some(11), ..Default::default() },
+                sync_message::Read {
+                    sender_aci: Some(ALICE.to_string()),
+                    timestamp: Some(10),
+                    ..Default::default()
+                },
+                sync_message::Read {
+                    sender_aci: None,
+                    timestamp: Some(11),
+                    ..Default::default()
+                },
             ],
             ..Default::default()
         };
         assert_eq!(
             only_mutation(run(&content(ME, sync))),
-            Mutation::ReadSync { author: ALICE, sent_at: 10 }
+            Mutation::ReadSync {
+                author: ALICE,
+                sent_at: 10
+            }
         );
     }
 
     #[test]
     fn receipts() {
-        let r = ReceiptMessage { r#type: Some(receipt_message::Type::Read as i32), timestamp: vec![1, 2] };
+        let r = ReceiptMessage {
+            r#type: Some(receipt_message::Type::Read as i32),
+            timestamp: vec![1, 2],
+        };
         assert_eq!(
             only_mutation(run(&content(ALICE, r))),
-            Mutation::Receipt { from: ALICE, kind: ReceiptKind::Read, sent_ats: vec![1, 2] }
+            Mutation::Receipt {
+                from: ALICE,
+                kind: ReceiptKind::Read,
+                sent_ats: vec![1, 2]
+            }
         );
-        let r = ReceiptMessage { r#type: None, timestamp: vec![1] };
+        let r = ReceiptMessage {
+            r#type: None,
+            timestamp: vec![1],
+        };
         assert!(matches!(
             only_mutation(run(&content(ALICE, r))),
-            Mutation::Receipt { kind: ReceiptKind::Delivered, .. }
+            Mutation::Receipt {
+                kind: ReceiptKind::Delivered,
+                ..
+            }
         ));
-        assert!(run(&content(ALICE, ReceiptMessage { r#type: None, timestamp: vec![] })).is_empty());
+        assert!(
+            run(&content(
+                ALICE,
+                ReceiptMessage {
+                    r#type: None,
+                    timestamp: vec![]
+                }
+            ))
+            .is_empty()
+        );
     }
 
     #[test]
     fn typing_direct_and_group() {
-        let t = TypingMessage { action: Some(typing_message::Action::Started as i32), ..Default::default() };
+        let t = TypingMessage {
+            action: Some(typing_message::Action::Started as i32),
+            ..Default::default()
+        };
         assert_eq!(
             run(&content(ALICE, t)),
-            vec![Output::Typing { conversation: ConversationId::Direct(ALICE), who: ALICE, started: true }]
+            vec![Output::Typing {
+                conversation: ConversationId::Direct(ALICE),
+                who: ALICE,
+                started: true
+            }]
         );
         let t = TypingMessage {
             action: Some(typing_message::Action::Stopped as i32),
@@ -467,15 +598,29 @@ mod tests {
             ..Default::default()
         };
         let resolve = |id: &[u8]| (id == [7; 32]).then_some(GroupKey(GROUP));
-        let out = interpret(&content(ALICE, t.clone()), &Ctx { me: ME, received_at: 0, group_by_id: &resolve });
+        let out = interpret(
+            &content(ALICE, t.clone()),
+            &Ctx {
+                me: ME,
+                received_at: 0,
+                group_by_id: &resolve,
+            },
+        );
         assert_eq!(
             out,
-            vec![Output::Typing { conversation: ConversationId::Group(GroupKey(GROUP)), who: ALICE, started: false }]
+            vec![Output::Typing {
+                conversation: ConversationId::Group(GroupKey(GROUP)),
+                who: ALICE,
+                started: false
+            }]
         );
         // unknown group: dropped
         assert!(run(&content(ALICE, t)).is_empty());
         // our own typing (from another device) is ignored
-        let t = TypingMessage { action: Some(0), ..Default::default() };
+        let t = TypingMessage {
+            action: Some(0),
+            ..Default::default()
+        };
         assert!(run(&content(ME, t)).is_empty());
     }
 

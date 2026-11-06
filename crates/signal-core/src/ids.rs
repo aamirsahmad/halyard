@@ -114,10 +114,22 @@ mod tests {
 
     #[test]
     fn parse_errors() {
-        assert_eq!("foo:bar".parse::<ConversationId>(), Err(ParseIdError::UnknownPrefix));
-        assert_eq!("direct:nope".parse::<ConversationId>(), Err(ParseIdError::InvalidUuid));
-        assert_eq!("group:abcd".parse::<ConversationId>(), Err(ParseIdError::InvalidGroupKey));
-        assert_eq!("group:zz".parse::<ConversationId>(), Err(ParseIdError::InvalidGroupKey));
+        assert_eq!(
+            "foo:bar".parse::<ConversationId>(),
+            Err(ParseIdError::UnknownPrefix)
+        );
+        assert_eq!(
+            "direct:nope".parse::<ConversationId>(),
+            Err(ParseIdError::InvalidUuid)
+        );
+        assert_eq!(
+            "group:abcd".parse::<ConversationId>(),
+            Err(ParseIdError::InvalidGroupKey)
+        );
+        assert_eq!(
+            "group:zz".parse::<ConversationId>(),
+            Err(ParseIdError::InvalidGroupKey)
+        );
     }
 
     #[test]

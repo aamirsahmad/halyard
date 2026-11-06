@@ -26,9 +26,9 @@ use presage::model::messages::Received;
 use presage::store::{ContentsStore, StateStore, Store};
 use presage_store_sqlite::SqliteStore;
 use signal_core::{
-    AccountInfo, AccountState, Attachment, BackendCommand, BackendEvent, Changes, Contact,
-    ConnectionState, ConversationId, Database, GroupKey, MessageStatus, Millis, Mutation,
-    NewMessage, Quote, now_millis,
+    AccountInfo, AccountState, Attachment, BackendCommand, BackendEvent, Changes, ConnectionState,
+    Contact, ConversationId, Database, GroupKey, MessageStatus, Millis, Mutation, NewMessage,
+    Quote, now_millis,
 };
 use tokio::sync::mpsc;
 use tokio::task::{JoinHandle, LocalSet, spawn_local};
@@ -60,7 +60,10 @@ impl BackendHandle {
         tx: mpsc::UnboundedSender<BackendCommand>,
         thread: std::thread::JoinHandle<()>,
     ) -> Self {
-        Self { tx, thread: Some(thread) }
+        Self {
+            tx,
+            thread: Some(thread),
+        }
     }
 
     pub fn send(&self, cmd: BackendCommand) {
@@ -92,7 +95,10 @@ pub fn spawn(config: BackendConfig, events: EventSink) -> std::io::Result<Backen
         // libsignal's post-quantum code uses large stack frames
         .stack_size(16 * 1024 * 1024)
         .spawn(move || {
-            let rt = match tokio::runtime::Builder::new_current_thread().enable_all().build() {
+            let rt = match tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+            {
                 Ok(rt) => rt,
                 Err(e) => {
                     events(BackendEvent::Error(format!("failed to start runtime: {e}")));
@@ -105,12 +111,17 @@ pub fn spawn(config: BackendConfig, events: EventSink) -> std::io::Result<Backen
                     Ok(worker) => worker.run(rx).await,
                     Err(e) => {
                         tracing::error!(%e, "backend failed to start");
-                        events(BackendEvent::Error(format!("Failed to open local storage: {e}")));
+                        events(BackendEvent::Error(format!(
+                            "Failed to open local storage: {e}"
+                        )));
                     }
                 }
             });
         })?;
-    Ok(BackendHandle { tx, thread: Some(thread) })
+    Ok(BackendHandle {
+        tx,
+        thread: Some(thread),
+    })
 }
 
 /// Results of background tasks, delivered back to the actor loop.
@@ -119,9 +130,21 @@ enum Internal {
     Linked(Result<Mgr, String>),
     Received(Received),
     Connection(ConnectionState),
-    SendResult { conversation: ConversationId, sent_at: Millis, ok: bool, error: Option<String> },
-    AttachmentDownloaded { message_id: i64, index: usize, path: Option<PathBuf> },
-    Profile { uuid: Uuid, name: Option<String> },
+    SendResult {
+        conversation: ConversationId,
+        sent_at: Millis,
+        ok: bool,
+        error: Option<String>,
+    },
+    AttachmentDownloaded {
+        message_id: i64,
+        index: usize,
+        path: Option<PathBuf>,
+    },
+    Profile {
+        uuid: Uuid,
+        name: Option<String>,
+    },
 }
 
 struct Worker {
@@ -148,10 +171,20 @@ pub fn group_identifier(key: &GroupKey) -> [u8; 32] {
 fn sanitize_file_name(name: &str) -> String {
     let cleaned: String = name
         .chars()
-        .map(|c| if c.is_alphanumeric() || matches!(c, '.' | '-' | '_') { c } else { '_' })
+        .map(|c| {
+            if c.is_alphanumeric() || matches!(c, '.' | '-' | '_') {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect();
     let cleaned = cleaned.trim_start_matches('.').to_string();
-    if cleaned.is_empty() { "attachment".into() } else { cleaned.chars().take(100).collect() }
+    if cleaned.is_empty() {
+        "attachment".into()
+    } else {
+        cleaned.chars().take(100).collect()
+    }
 }
 
 /// Picks a unique, monotonically increasing send timestamp.
@@ -271,7 +304,9 @@ impl Worker {
         if let Some(t) = self.receive_task.take() {
             t.abort();
         }
-        let Some(manager) = self.manager.clone() else { return };
+        let Some(manager) = self.manager.clone() else {
+            return;
+        };
         let tx = self.internal_tx.clone();
         self.receive_task = Some(spawn_local(receive_loop(manager, tx)));
     }
@@ -334,12 +369,17 @@ impl Worker {
         if Some(uuid) == self.me || !self.profile_requested.insert(uuid) {
             return;
         }
-        if matches!(self.db.contact(&uuid), Ok(Some(c)) if c.name.is_some() || c.profile_name.is_some()) {
+        if matches!(self.db.contact(&uuid), Ok(Some(c)) if c.name.is_some() || c.profile_name.is_some())
+        {
             return;
         }
-        let Some(mut manager) = self.manager.clone() else { return };
+        let Some(mut manager) = self.manager.clone() else {
+            return;
+        };
         let sid = ServiceId::Aci(Aci::from(uuid));
-        let Ok(Some(key)) = self.store.profile_key(&sid).await else { return };
+        let Ok(Some(key)) = self.store.profile_key(&sid).await else {
+            return;
+        };
         let tx = self.internal_tx.clone();
         spawn_local(async move {
             let name = match manager.retrieve_profile_by_uuid(Aci::from(uuid), key).await {
@@ -358,9 +398,9 @@ impl Worker {
 
     async fn handle_internal(&mut self, msg: Internal) {
         match msg {
-            Internal::LinkUrl(url) => {
-                self.emit(BackendEvent::Account(AccountState::Linking { url: Some(url) }))
-            }
+            Internal::LinkUrl(url) => self.emit(BackendEvent::Account(AccountState::Linking {
+                url: Some(url),
+            })),
             Internal::Linked(Ok(manager)) => {
                 self.link_task = None;
                 self.on_registered(manager, true).await;
@@ -371,15 +411,32 @@ impl Worker {
             }
             Internal::Connection(c) => self.emit(BackendEvent::Connection(c)),
             Internal::Received(r) => self.handle_received(r).await,
-            Internal::SendResult { conversation, sent_at, ok, error } => {
-                let status = if ok { MessageStatus::Sent } else { MessageStatus::Failed };
-                let ch = self.apply(Mutation::SendStatus { conversation, sent_at, status });
+            Internal::SendResult {
+                conversation,
+                sent_at,
+                ok,
+                error,
+            } => {
+                let status = if ok {
+                    MessageStatus::Sent
+                } else {
+                    MessageStatus::Failed
+                };
+                let ch = self.apply(Mutation::SendStatus {
+                    conversation,
+                    sent_at,
+                    status,
+                });
                 self.emit_changes(ch);
                 if let Some(e) = error {
                     self.emit(BackendEvent::Error(format!("Message not sent: {e}")));
                 }
             }
-            Internal::AttachmentDownloaded { message_id, index, path } => {
+            Internal::AttachmentDownloaded {
+                message_id,
+                index,
+                path,
+            } => {
                 if let Some(path) = path {
                     let ch = self.apply(Mutation::AttachmentDownloaded {
                         message_id,
@@ -419,14 +476,24 @@ impl Worker {
                 };
                 let outputs = interpret::interpret(
                     &content,
-                    &Ctx { me, received_at: now_millis(), group_by_id: &resolve },
+                    &Ctx {
+                        me,
+                        received_at: now_millis(),
+                        group_by_id: &resolve,
+                    },
                 );
                 for out in outputs {
                     match out {
                         Output::GroupSeen(key) => self.ensure_group(key).await,
-                        Output::Typing { conversation, who, started } => {
-                            self.emit(BackendEvent::Typing { conversation, who, started })
-                        }
+                        Output::Typing {
+                            conversation,
+                            who,
+                            started,
+                        } => self.emit(BackendEvent::Typing {
+                            conversation,
+                            who,
+                            started,
+                        }),
                         Output::Mutation(m) => {
                             let author = match &m {
                                 Mutation::InsertMessage(n) if !n.outgoing => Some(n.author),
@@ -450,16 +517,23 @@ impl Worker {
     }
 
     fn download_attachments(&self, message_id: i64, attachments: &[Attachment]) {
-        let Some(manager) = self.manager.clone() else { return };
+        let Some(manager) = self.manager.clone() else {
+            return;
+        };
         for (index, att) in attachments.iter().enumerate() {
             if att.local_path.is_some() {
                 continue;
             }
-            let Some(pointer) = interpret::pointer_from_attachment(att) else { continue };
+            let Some(pointer) = interpret::pointer_from_attachment(att) else {
+                continue;
+            };
             let manager = manager.clone();
             let tx = self.internal_tx.clone();
             let dir = self.config.paths.attachments_dir();
-            let file_name = format!("{message_id}-{index}-{}", sanitize_file_name(&att.display_name()));
+            let file_name = format!(
+                "{message_id}-{index}-{}",
+                sanitize_file_name(&att.display_name())
+            );
             spawn_local(async move {
                 let path = match manager.get_attachment(&pointer).await {
                     Ok(bytes) => {
@@ -477,7 +551,11 @@ impl Worker {
                         None
                     }
                 };
-                let _ = tx.send(Internal::AttachmentDownloaded { message_id, index, path });
+                let _ = tx.send(Internal::AttachmentDownloaded {
+                    message_id,
+                    index,
+                    path,
+                });
             });
         }
     }
@@ -485,10 +563,16 @@ impl Worker {
     async fn handle_command(&mut self, cmd: BackendCommand) {
         match cmd {
             BackendCommand::Link { device_name } => self.start_linking(device_name),
-            BackendCommand::SendText { conversation, body, quote, attachments } => {
-                self.send_text(conversation, body, quote, attachments, None)
-            }
-            BackendCommand::Resend { conversation, sent_at } => {
+            BackendCommand::SendText {
+                conversation,
+                body,
+                quote,
+                attachments,
+            } => self.send_text(conversation, body, quote, attachments, None),
+            BackendCommand::Resend {
+                conversation,
+                sent_at,
+            } => {
                 let Some(me) = self.me else { return };
                 if let Ok(Some(msg)) = self.db.message_by_key(&conversation, &me, sent_at) {
                     let paths = msg
@@ -499,7 +583,13 @@ impl Worker {
                     self.send_text(conversation, msg.body, msg.quote, paths, Some(sent_at));
                 }
             }
-            BackendCommand::React { conversation, target_author, target_sent_at, emoji, remove } => {
+            BackendCommand::React {
+                conversation,
+                target_author,
+                target_sent_at,
+                emoji,
+                remove,
+            } => {
                 let Some(me) = self.me else { return };
                 let at = self.next_ts();
                 let ch = self.apply(Mutation::React {
@@ -525,20 +615,32 @@ impl Worker {
                 };
                 self.spawn_send(conversation, dm, at, false);
             }
-            BackendCommand::DeleteForEveryone { conversation, sent_at } => {
+            BackendCommand::DeleteForEveryone {
+                conversation,
+                sent_at,
+            } => {
                 let Some(me) = self.me else { return };
-                let ch = self.apply(Mutation::DeleteForEveryone { conversation, author: me, target_sent_at: sent_at });
+                let ch = self.apply(Mutation::DeleteForEveryone {
+                    conversation,
+                    author: me,
+                    target_sent_at: sent_at,
+                });
                 self.emit_changes(ch);
                 let at = self.next_ts();
                 let dm = DataMessage {
                     timestamp: Some(at as u64),
-                    delete: Some(data_message::Delete { target_sent_timestamp: Some(sent_at as u64) }),
+                    delete: Some(data_message::Delete {
+                        target_sent_timestamp: Some(sent_at as u64),
+                    }),
                     ..Default::default()
                 };
                 self.spawn_send(conversation, dm, at, false);
             }
             BackendCommand::MarkRead { conversation } => self.mark_read(conversation),
-            BackendCommand::Typing { conversation, started } => self.send_typing(conversation, started),
+            BackendCommand::Typing {
+                conversation,
+                started,
+            } => self.send_typing(conversation, started),
             BackendCommand::SyncContacts => {
                 if let Some(mut m) = self.manager.clone() {
                     spawn_local(async move {
@@ -604,7 +706,10 @@ impl Worker {
             Some(ts) => ts,
             None => {
                 let ts = self.next_ts();
-                let attachments = attachment_paths.iter().map(|p| local_attachment(p)).collect();
+                let attachments = attachment_paths
+                    .iter()
+                    .map(|p| local_attachment(p))
+                    .collect();
                 let ch = self.apply(Mutation::InsertMessage(NewMessage {
                     conversation,
                     author: me,
@@ -622,7 +727,9 @@ impl Worker {
                 ts
             }
         };
-        let Some(manager) = self.manager.clone() else { return };
+        let Some(manager) = self.manager.clone() else {
+            return;
+        };
         let tx = self.internal_tx.clone();
         spawn_local(async move {
             let result = async {
@@ -654,13 +761,20 @@ impl Worker {
 
     /// Sends a control message (reaction, deletion) in the background.
     fn spawn_send(&self, conversation: ConversationId, dm: DataMessage, at: Millis, report: bool) {
-        let Some(manager) = self.manager.clone() else { return };
+        let Some(manager) = self.manager.clone() else {
+            return;
+        };
         let tx = self.internal_tx.clone();
         spawn_local(async move {
             if let Err(e) = deliver(manager, conversation, dm, at).await {
                 tracing::warn!(%e, "failed to send control message");
                 if report {
-                    let _ = tx.send(Internal::SendResult { conversation, sent_at: at, ok: false, error: Some(e) });
+                    let _ = tx.send(Internal::SendResult {
+                        conversation,
+                        sent_at: at,
+                        ok: false,
+                        error: Some(e),
+                    });
                 }
             }
         });
@@ -673,10 +787,15 @@ impl Worker {
         if unread.is_empty() {
             return;
         }
-        let (Some(manager), Some(me)) = (self.manager.clone(), self.me) else { return };
+        let (Some(manager), Some(me)) = (self.manager.clone(), self.me) else {
+            return;
+        };
         let mut by_author: HashMap<Uuid, Vec<u64>> = HashMap::new();
         for m in &unread {
-            by_author.entry(m.author).or_default().push(m.sent_at as u64);
+            by_author
+                .entry(m.author)
+                .or_default()
+                .push(m.sent_at as u64);
         }
         let now = self.next_ts() as u64;
         spawn_local(async move {
@@ -687,7 +806,11 @@ impl Worker {
                     timestamp: timestamps.clone(),
                 };
                 if let Err(e) = manager
-                    .send_message(ServiceId::Aci(Aci::from(*author)), ContentBody::ReceiptMessage(receipt), now)
+                    .send_message(
+                        ServiceId::Aci(Aci::from(*author)),
+                        ContentBody::ReceiptMessage(receipt),
+                        now,
+                    )
                     .await
                 {
                     tracing::debug!(%e, "failed to send read receipt");
@@ -708,7 +831,11 @@ impl Worker {
                 ..Default::default()
             };
             if let Err(e) = manager
-                .send_message(ServiceId::Aci(Aci::from(me)), ContentBody::SynchronizeMessage(sync), now)
+                .send_message(
+                    ServiceId::Aci(Aci::from(me)),
+                    ContentBody::SynchronizeMessage(sync),
+                    now,
+                )
                 .await
             {
                 tracing::debug!(%e, "failed to send read sync");
@@ -717,14 +844,30 @@ impl Worker {
     }
 
     fn send_typing(&mut self, conversation: ConversationId, started: bool) {
-        let Some(mut manager) = self.manager.clone() else { return };
+        let Some(mut manager) = self.manager.clone() else {
+            return;
+        };
         let ts = now_millis() as u64;
-        let action = if started { typing_message::Action::Started } else { typing_message::Action::Stopped };
+        let action = if started {
+            typing_message::Action::Started
+        } else {
+            typing_message::Action::Stopped
+        };
         spawn_local(async move {
             let result = match conversation {
                 ConversationId::Direct(uuid) => {
-                    let msg = TypingMessage { timestamp: Some(ts), action: Some(action as i32), group_id: None };
-                    manager.send_message(ServiceId::Aci(Aci::from(uuid)), ContentBody::TypingMessage(msg), ts).await
+                    let msg = TypingMessage {
+                        timestamp: Some(ts),
+                        action: Some(action as i32),
+                        group_id: None,
+                    };
+                    manager
+                        .send_message(
+                            ServiceId::Aci(Aci::from(uuid)),
+                            ContentBody::TypingMessage(msg),
+                            ts,
+                        )
+                        .await
                 }
                 ConversationId::Group(key) => {
                     let msg = TypingMessage {
@@ -732,7 +875,9 @@ impl Worker {
                         action: Some(action as i32),
                         group_id: Some(group_identifier(&key).to_vec()),
                     };
-                    manager.send_message_to_group(&key.0, ContentBody::TypingMessage(msg), ts).await
+                    manager
+                        .send_message_to_group(&key.0, ContentBody::TypingMessage(msg), ts)
+                        .await
                 }
             };
             if let Err(e) = result {
@@ -772,7 +917,10 @@ impl Worker {
 fn local_attachment(path: &Path) -> Attachment {
     let size = std::fs::metadata(path).map(|m| m.len()).unwrap_or_default();
     Attachment {
-        content_type: mime_guess::from_path(path).first_or_octet_stream().essence_str().to_string(),
+        content_type: mime_guess::from_path(path)
+            .first_or_octet_stream()
+            .essence_str()
+            .to_string(),
         file_name: path.file_name().map(|n| n.to_string_lossy().into_owned()),
         size,
         local_path: Some(path.to_string_lossy().into_owned()),
@@ -791,11 +939,15 @@ async fn upload(
 ) -> Result<Vec<presage::libsignal_service::proto::AttachmentPointer>, String> {
     let mut specs = Vec::with_capacity(paths.len());
     for path in paths {
-        let meta = tokio::fs::metadata(path).await.map_err(|e| format!("{}: {e}", path.display()))?;
+        let meta = tokio::fs::metadata(path)
+            .await
+            .map_err(|e| format!("{}: {e}", path.display()))?;
         if meta.len() > MAX_ATTACHMENT_BYTES {
             return Err(format!("{} is larger than 100 MB", path.display()));
         }
-        let bytes = tokio::fs::read(path).await.map_err(|e| format!("{}: {e}", path.display()))?;
+        let bytes = tokio::fs::read(path)
+            .await
+            .map_err(|e| format!("{}: {e}", path.display()))?;
         let a = local_attachment(path);
         specs.push((
             AttachmentSpec {
@@ -813,8 +965,14 @@ async fn upload(
             bytes,
         ));
     }
-    let results = manager.upload_attachments(specs).await.map_err(|e| e.to_string())?;
-    results.into_iter().map(|r| r.map_err(|e| format!("upload failed: {e}"))).collect()
+    let results = manager
+        .upload_attachments(specs)
+        .await
+        .map_err(|e| e.to_string())?;
+    results
+        .into_iter()
+        .map(|r| r.map_err(|e| format!("upload failed: {e}")))
+        .collect()
 }
 
 async fn deliver(
@@ -839,7 +997,10 @@ async fn deliver(
                 revision: Some(group_revision),
                 group_change: None,
             });
-            manager.send_message_to_group(&key.0, dm, ts).await.map_err(|e| e.to_string())
+            manager
+                .send_message_to_group(&key.0, dm, ts)
+                .await
+                .map_err(|e| e.to_string())
         }
     }
 }
