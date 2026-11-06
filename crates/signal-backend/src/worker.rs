@@ -527,7 +527,7 @@ impl Worker {
             };
             let manager = manager.clone();
             let tx = self.internal_tx.clone();
-            let dir = self.config.paths.attachments_dir();
+            let store = self.config.paths.attachment_store(&self.config.db_key);
             let file_name = format!(
                 "{message_id}-{index}-{}",
                 sanitize_file_name(&att.display_name())
@@ -535,11 +535,17 @@ impl Worker {
             spawn_local(async move {
                 let path = match manager.get_attachment(&pointer).await {
                     Ok(bytes) => {
-                        let path = dir.join(file_name);
-                        match tokio::fs::write(&path, bytes).await {
-                            Ok(()) => Some(path),
-                            Err(e) => {
+                        let written =
+                            tokio::task::spawn_blocking(move || store.write(&file_name, &bytes))
+                                .await;
+                        match written {
+                            Ok(Ok(path)) => Some(path),
+                            Ok(Err(e)) => {
                                 tracing::error!(%e, "failed to save attachment");
+                                None
+                            }
+                            Err(e) => {
+                                tracing::error!(%e, "attachment writer panicked");
                                 None
                             }
                         }
@@ -905,6 +911,7 @@ impl Worker {
             self.error("Failed to clear messages", e);
         }
         let _ = std::fs::remove_dir_all(self.config.paths.attachments_dir());
+        let _ = std::fs::remove_dir_all(self.config.paths.open_cache_dir());
         let _ = self.config.paths.ensure();
         self.me = None;
         self.group_ids.clear();

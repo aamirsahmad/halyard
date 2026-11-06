@@ -3,6 +3,7 @@
 pub mod actions;
 pub mod app;
 pub mod assets;
+pub mod attachments;
 pub mod theme;
 pub mod views;
 

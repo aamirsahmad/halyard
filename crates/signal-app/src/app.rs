@@ -107,6 +107,7 @@ pub struct TimelineData {
     pub names: Rc<HashMap<Uuid, String>>,
     pub me: Option<Uuid>,
     pub is_group: bool,
+    pub attachments: Rc<crate::attachments::AttachmentAccess>,
 }
 
 /// What changed in the open conversation's messages.
@@ -147,6 +148,8 @@ pub struct SignalApp {
     typing_sent: Option<(ConversationId, Instant)>,
     typing_generation: u64,
     focus_override: Option<bool>,
+    settings_path: Option<PathBuf>,
+    attachments: Rc<crate::attachments::AttachmentAccess>,
     pub(crate) focus: FocusHandle,
     _subscriptions: Vec<Subscription>,
 }
@@ -222,6 +225,7 @@ impl SignalApp {
                 names: Rc::default(),
                 me: None,
                 is_group: false,
+                attachments: Rc::default(),
             }),
             replying_to: None,
             pending_attachments: Vec::new(),
@@ -233,6 +237,8 @@ impl SignalApp {
             typing_sent: None,
             typing_generation: 0,
             focus_override: None,
+            settings_path: None,
+            attachments: Rc::default(),
             focus: cx.focus_handle(),
             _subscriptions: subscriptions,
         };
@@ -518,6 +524,7 @@ impl SignalApp {
             names: self.names.clone(),
             me: self.me(),
             is_group: self.state.selected().is_some_and(|c| c.is_group()),
+            attachments: self.attachments.clone(),
         });
         self.scroller.update(cx, |s, cx| match change {
             TimelineChange::Reset => s.reset(new_len, cx),
@@ -884,6 +891,24 @@ impl SignalApp {
         });
     }
 
+    /// Uses `access` to read (encrypted) attachment files.
+    pub fn set_attachment_access(&mut self, access: crate::attachments::AttachmentAccess) {
+        self.attachments = Rc::new(access);
+    }
+
+    /// Loads (and from now on saves) UI preferences at `path`.
+    pub fn use_settings_file(
+        &mut self,
+        path: PathBuf,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let appearance = Appearance::load(&path);
+        self.settings_path = Some(path);
+        self.appearance = appearance;
+        apply_appearance(appearance, Some(window), cx);
+    }
+
     pub fn set_appearance(
         &mut self,
         appearance: Appearance,
@@ -892,6 +917,11 @@ impl SignalApp {
     ) {
         self.appearance = appearance;
         apply_appearance(appearance, Some(window), cx);
+        if let Some(path) = &self.settings_path
+            && let Err(e) = appearance.save(path)
+        {
+            tracing::warn!(%e, "failed to save settings");
+        }
         cx.notify();
     }
 

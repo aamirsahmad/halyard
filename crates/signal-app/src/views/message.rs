@@ -176,7 +176,7 @@ fn render_message(
             );
         }
         for (i, a) in m.attachments.iter().enumerate() {
-            bubble = bubble.child(render_attachment(id, i, a, fg, meta));
+            bubble = bubble.child(render_attachment(data, id, i, a, fg, meta));
         }
         if !m.body.is_empty() {
             bubble = bubble.child(
@@ -396,6 +396,7 @@ fn status_icon(status: MessageStatus, color: gpui_kit::Hsla) -> AnyElement {
 }
 
 fn render_attachment(
+    data: &TimelineData,
     msg_id: i64,
     index: usize,
     a: &Attachment,
@@ -417,16 +418,21 @@ fn render_attachment(
             .rounded(px(12.))
             .overflow_hidden()
             .child(
-                img(std::path::PathBuf::from(path))
-                    .w(px(w))
-                    .h(px(h))
-                    .object_fit(ObjectFit::Cover),
+                match data.attachments.image(path, &a.content_type) {
+                    Some(image) => img(image),
+                    None => img(std::path::PathBuf::from(path)),
+                }
+                .w(px(w))
+                .h(px(h))
+                .object_fit(ObjectFit::Cover),
             )
             .test_support()
             .into_any_element();
     }
     let downloading = a.local_path.is_none();
     let path = a.local_path.clone();
+    let access = data.attachments.clone();
+    let file_name = a.display_name();
     div()
         .id(ElementId::Name(
             format!("attachment-{msg_id}-{index}").into(),
@@ -437,9 +443,12 @@ fn render_attachment(
         .py_1()
         .when(!downloading, |d| d.cursor_pointer())
         .when_some(path, |d, path| {
-            d.on_click(move |_, _, cx| {
-                cx.open_with_system(std::path::Path::new(&path));
-            })
+            d.on_click(
+                move |_, _, cx| match access.path_for_open(&path, &file_name) {
+                    Ok(p) => cx.open_with_system(&p),
+                    Err(e) => tracing::error!(%e, "failed to open attachment"),
+                },
+            )
         })
         .child(
             div()

@@ -107,6 +107,40 @@ pub enum Appearance {
     Dark,
 }
 
+impl Appearance {
+    fn as_str(self) -> &'static str {
+        match self {
+            Appearance::System => "system",
+            Appearance::Light => "light",
+            Appearance::Dark => "dark",
+        }
+    }
+
+    fn parse(s: &str) -> Option<Self> {
+        match s.trim() {
+            "system" => Some(Appearance::System),
+            "light" => Some(Appearance::Light),
+            "dark" => Some(Appearance::Dark),
+            _ => None,
+        }
+    }
+
+    /// Reads the saved preference (`appearance=<value>` lines); defaults to System.
+    pub fn load(path: &std::path::Path) -> Self {
+        std::fs::read_to_string(path)
+            .ok()
+            .and_then(|s| {
+                s.lines()
+                    .find_map(|l| l.strip_prefix("appearance=").and_then(Self::parse))
+            })
+            .unwrap_or_default()
+    }
+
+    pub fn save(self, path: &std::path::Path) -> std::io::Result<()> {
+        std::fs::write(path, format!("appearance={}\n", self.as_str()))
+    }
+}
+
 /// Applies the appearance preference to the GPUI Kit theme.
 pub fn apply_appearance(
     appearance: Appearance,
@@ -128,6 +162,17 @@ pub fn hex(c: u32) -> Hsla {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn appearance_roundtrip() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("ui.conf");
+        assert_eq!(Appearance::load(&path), Appearance::System);
+        Appearance::Dark.save(&path).unwrap();
+        assert_eq!(Appearance::load(&path), Appearance::Dark);
+        std::fs::write(&path, "appearance=purple\n").unwrap();
+        assert_eq!(Appearance::load(&path), Appearance::System);
+    }
 
     #[test]
     fn palettes_differ_and_keep_accent() {

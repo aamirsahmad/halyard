@@ -87,10 +87,15 @@ fn main() -> anyhow::Result<()> {
     };
     let root = if args.demo { root.join("demo") } else { root };
     let paths = DataPaths::new(&root);
+    let settings_file = root.join("ui.conf");
     let key = paths
         .load_or_create_db_key()
         .context("failed to load the database key")?;
     // Open (and migrate) the message database before the backend starts.
+    let attachment_access = signal_app::attachments::AttachmentAccess::new(
+        paths.attachment_store(&key),
+        paths.open_cache_dir(),
+    );
     let db = Database::open(paths.app_db(), Some(&key))
         .context("failed to open the message database")?;
     tracing::info!(data_dir = %root.display(), demo = args.demo, "starting");
@@ -151,6 +156,8 @@ fn main() -> anyhow::Result<()> {
             cx.new(|cx| {
                 let mut app =
                     SignalApp::new(db, Rc::new(backend), Rc::new(DesktopNotifier), window, cx);
+                app.use_settings_file(settings_file, window, cx);
+                app.set_attachment_access(attachment_access);
                 app.listen(rx, window, cx);
                 app
             })

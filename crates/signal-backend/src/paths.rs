@@ -39,6 +39,17 @@ impl DataPaths {
         self.root.join("attachments")
     }
 
+    /// Encrypted store for downloaded attachments.
+    pub fn attachment_store(&self, db_key: &str) -> signal_core::attachments::AttachmentStore {
+        signal_core::attachments::AttachmentStore::new(self.attachments_dir(), db_key.as_bytes())
+    }
+
+    /// Scratch directory for attachments decrypted to be opened externally.
+    /// Cleared on every start.
+    pub fn open_cache_dir(&self) -> PathBuf {
+        self.root.join("open-cache")
+    }
+
     pub fn key_file(&self) -> PathBuf {
         self.root.join("config.json")
     }

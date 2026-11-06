@@ -1,0 +1,8 @@
+# Reproducible Linux build/test environment (Ubuntu 24.04).
+FROM ubuntu:24.04
+ENV DEBIAN_FRONTEND=noninteractive
+COPY script/install-linux-deps.sh /tmp/install-linux-deps.sh
+RUN /tmp/install-linux-deps.sh && rm -rf /var/lib/apt/lists/*
+RUN curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none
+ENV PATH=/root/.cargo/bin:$PATH
+WORKDIR /src

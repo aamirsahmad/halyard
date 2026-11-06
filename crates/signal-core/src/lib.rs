@@ -2,6 +2,7 @@
 //! UI state reducer and presentation helpers. This crate has no dependency on
 //! the network layer nor on the UI toolkit, which keeps it fully unit-testable.
 
+pub mod attachments;
 pub mod avatar;
 pub mod db;
 pub mod format;
