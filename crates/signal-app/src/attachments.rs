@@ -64,6 +64,11 @@ impl AttachmentAccess {
         image
     }
 
+    /// Decrypted bytes of an attachment file.
+    pub fn bytes(&self, path: &str) -> std::io::Result<Vec<u8>> {
+        self.read(Path::new(path))
+    }
+
     /// Writes a decrypted copy of an attachment to `dest` (Save As).
     pub fn export_to(&self, path: &str, dest: &Path) -> std::io::Result<()> {
         std::fs::write(dest, self.read(Path::new(path))?)

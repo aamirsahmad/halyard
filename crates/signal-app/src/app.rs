@@ -108,6 +108,7 @@ pub struct TimelineData {
     pub me: Option<Uuid>,
     pub is_group: bool,
     pub attachments: Rc<crate::attachments::AttachmentAccess>,
+    pub audio: Rc<crate::audio::AudioPlayer>,
 }
 
 /// What changed in the open conversation's messages.
@@ -156,6 +157,8 @@ pub struct SignalApp {
     focus_override: Option<bool>,
     settings_path: Option<PathBuf>,
     pub(crate) attachments: Rc<crate::attachments::AttachmentAccess>,
+    pub(crate) audio: Rc<crate::audio::AudioPlayer>,
+    audio_was_active: bool,
     pub(crate) composer_emoji: Entity<crate::views::emoji_picker::EmojiPicker>,
     pub(crate) reaction_picker: Entity<crate::views::emoji_picker::EmojiPicker>,
     pub(crate) reaction_target: Rc<std::cell::Cell<Option<i64>>>,
@@ -291,6 +294,7 @@ impl SignalApp {
                 me: None,
                 is_group: false,
                 attachments: Rc::default(),
+                audio: Rc::default(),
             }),
             replying_to: None,
             editing: None,
@@ -309,6 +313,8 @@ impl SignalApp {
             focus_override: None,
             settings_path: None,
             attachments: Rc::default(),
+            audio: Rc::default(),
+            audio_was_active: false,
             composer_emoji,
             reaction_picker,
             reaction_target,
@@ -317,14 +323,25 @@ impl SignalApp {
         };
         this.state.window_active = this.window_is_active(window);
         this.reload_names();
-        // repaint disappearing-message countdowns once a second
-        cx.spawn(async move |this, cx| {
+        // repaint audio progress and disappearing-message countdowns
+        cx.spawn_in(window, async move |this, cx| {
+            let mut tick: u32 = 0;
             loop {
-                cx.background_executor().timer(Duration::from_secs(1)).await;
-                let alive = this.update(cx, |this, cx| {
-                    if this.state.messages().iter().any(|m| m.expires_at.is_some()) {
+                cx.background_executor()
+                    .timer(Duration::from_millis(250))
+                    .await;
+                tick = tick.wrapping_add(1);
+                let alive = this.update_in(cx, |this, window, cx| {
+                    if let Some(e) = this.audio.take_error() {
+                        window.push_notification(Notification::error(e), cx);
+                    }
+                    let audio = this.audio.is_active();
+                    let countdown = tick % 4 == 0
+                        && this.state.messages().iter().any(|m| m.expires_at.is_some());
+                    if audio || countdown || this.audio_was_active {
                         cx.notify();
                     }
+                    this.audio_was_active = audio;
                 });
                 if alive.is_err() {
                     break;
@@ -354,6 +371,10 @@ impl SignalApp {
 
     pub fn composer(&self) -> &Entity<TextareaState> {
         &self.composer
+    }
+
+    pub fn audio_status(&self) -> crate::audio::PlaybackStatus {
+        self.audio.status()
     }
 
     /// Ids of the current in-conversation search results.
@@ -611,7 +632,22 @@ impl SignalApp {
         cx.notify();
     }
 
+    /// Plays or pauses an audio attachment.
+    pub fn toggle_audio(
+        &mut self,
+        message_id: i64,
+        index: usize,
+        path: String,
+        cx: &mut Context<Self>,
+    ) {
+        let access = self.attachments.clone();
+        self.audio
+            .toggle((message_id, index), || access.bytes(&path).ok());
+        cx.notify();
+    }
+
     pub fn close_conversation(&mut self, cx: &mut Context<Self>) {
+        self.audio.stop();
         self.conv_search_open = false;
         self.conv_search_results.clear();
         self.unread_anchor = None;
@@ -692,6 +728,7 @@ impl SignalApp {
             me: self.me(),
             is_group: self.state.selected().is_some_and(|c| c.is_group()),
             attachments: self.attachments.clone(),
+            audio: self.audio.clone(),
         });
         self.scroller.update(cx, |s, cx| match change {
             TimelineChange::Reset => {

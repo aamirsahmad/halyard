@@ -4,6 +4,7 @@ pub mod actions;
 pub mod app;
 pub mod assets;
 pub mod attachments;
+pub mod audio;
 mod chat_actions;
 pub mod emoji;
 pub mod settings;

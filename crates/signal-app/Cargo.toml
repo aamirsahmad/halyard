@@ -26,6 +26,7 @@ qrcode.workspace = true
 futures.workspace = true
 uuid.workspace = true
 notify-rust = "4"
+rodio = { version = "0.23", default-features = false, features = ["playback", "mp4", "mp3", "vorbis", "wav", "flac", "symphonia-aac"] }
 
 [dev-dependencies]
 gpui-kit = { workspace = true, features = ["test-support"] }

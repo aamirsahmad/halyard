@@ -21,6 +21,7 @@ use signal_core::{
 
 use crate::app::{QUICK_REACTIONS, SignalApp, TimelineData};
 use crate::assets::Icons;
+use crate::audio::format_clock;
 use crate::theme::{Palette, hex};
 use crate::views::avatar::Avatar;
 
@@ -570,6 +571,76 @@ fn render_attachment(
                 .w(px(w))
                 .h(px(h))
                 .object_fit(ObjectFit::Cover),
+            )
+            .test_support()
+            .into_any_element();
+    }
+    if let (true, Some(path)) = (a.content_type.starts_with("audio/"), a.local_path.clone()) {
+        let status = data.audio.status();
+        let current = status.current == Some((msg_id, index));
+        let playing = current && !status.paused;
+        let fraction = match (current, status.duration) {
+            (true, Some(d)) if !d.is_zero() => {
+                (status.position.as_secs_f32() / d.as_secs_f32()).clamp(0., 1.)
+            }
+            _ => 0.,
+        };
+        let clock = if current {
+            match status.duration {
+                Some(d) => format!("{} / {}", format_clock(status.position), format_clock(d)),
+                None => format_clock(status.position),
+            }
+        } else {
+            file_size(a.size)
+        };
+        let app = app.clone();
+        return div()
+            .id(ElementId::Name(
+                format!("attachment-{msg_id}-{index}").into(),
+            ))
+            .flex()
+            .items_center()
+            .gap_2()
+            .min_w(px(220.))
+            .py_1()
+            .child(
+                Button::new(ElementId::Name(
+                    format!("audio-play-{msg_id}-{index}").into(),
+                ))
+                .small()
+                .rounded_full()
+                .icon(if playing {
+                    gpui_kit::component::IconName::Pause
+                } else {
+                    gpui_kit::component::IconName::Play
+                })
+                .tooltip(if playing { "Pause" } else { "Play" })
+                .on_click(move |_, _, cx| {
+                    let path = path.clone();
+                    let _ = app.update(cx, |this, cx| this.toggle_audio(msg_id, index, path, cx));
+                }),
+            )
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .flex_1()
+                    .gap_1()
+                    .child(
+                        div()
+                            .h(px(4.))
+                            .w_full()
+                            .rounded_full()
+                            .bg(meta.opacity(0.35))
+                            .child(
+                                div()
+                                    .h_full()
+                                    .rounded_full()
+                                    .bg(fg)
+                                    .w(gpui_kit::relative(fraction)),
+                            ),
+                    )
+                    .child(div().text_size(px(11.)).text_color(meta).child(clock)),
             )
             .test_support()
             .into_any_element();

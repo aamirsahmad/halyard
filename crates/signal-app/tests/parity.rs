@@ -501,3 +501,68 @@ fn link_preview_card_renders(cx: &mut TestAppContext) {
         assert!(w.try_find(eid(format!("link-preview-{id}"))).is_some())
     });
 }
+
+#[gpui_kit::test]
+fn audio_attachment_play_button(cx: &mut TestAppContext) {
+    // a 0.5 s silent WAV
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("voice.wav");
+    let samples = 4000u32;
+    let mut wav = Vec::new();
+    wav.extend_from_slice(b"RIFF");
+    wav.extend_from_slice(&(36 + samples * 2).to_le_bytes());
+    wav.extend_from_slice(b"WAVEfmt ");
+    for v in [16u32] {
+        wav.extend_from_slice(&v.to_le_bytes());
+    }
+    for v in [1u16, 1] {
+        wav.extend_from_slice(&v.to_le_bytes());
+    }
+    for v in [8000u32, 16000] {
+        wav.extend_from_slice(&v.to_le_bytes());
+    }
+    for v in [2u16, 16] {
+        wav.extend_from_slice(&v.to_le_bytes());
+    }
+    wav.extend_from_slice(b"data");
+    wav.extend_from_slice(&(samples * 2).to_le_bytes());
+    wav.resize(wav.len() + (samples * 2) as usize, 0);
+    std::fs::write(&path, wav).unwrap();
+
+    let mut m = NewMessage::text(alice(), DEMO_ALICE, now_millis() - 1000, false, "");
+    m.attachments = vec![signal_core::Attachment {
+        content_type: "audio/wav".into(),
+        file_name: Some("voice.wav".into()),
+        size: 8044,
+        local_path: Some(path.to_string_lossy().into_owned()),
+        ..Default::default()
+    }];
+    let h = setup_with(cx, vec![Mutation::InsertMessage(m)]);
+    with_app(cx, &h, |a, w, cx| a.open_conversation(alice(), w, cx));
+    let id = cx.update(|cx| {
+        h.app
+            .read(cx)
+            .state()
+            .messages()
+            .iter()
+            .find(|m| !m.attachments.is_empty())
+            .unwrap()
+            .id
+    });
+    with_window(cx, &h, |w, cx| {
+        w.click(eid(format!("audio-play-{id}-0")), cx)
+    });
+    // the audio thread either starts playing or reports a missing device
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+    let status = loop {
+        let st = cx.update(|cx| h.app.read(cx).audio_status());
+        if st.current.is_some() || st.error.is_some() || std::time::Instant::now() > deadline {
+            break st;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    };
+    assert!(
+        status.current == Some((id, 0)) || status.error.is_some(),
+        "{status:?}"
+    );
+}
