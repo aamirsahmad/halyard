@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Signal GPUI
+GenericName=Private Messenger
+Comment=Signal messenger client built with GPUI
+Exec=signal-gpui %U
+Icon=signal-gpui
+Terminal=false
+Categories=Network;InstantMessaging;Chat;
+StartupWMClass=org.signal-gpui.Signal
+Keywords=signal;chat;messenger;encrypted;
