@@ -18,7 +18,8 @@ This version supports messaging only. Voice and video calls are planned.
 | Link as a secondary device (QR code, like Signal Desktop) | ✅ |
 | 1:1 and group (v2) messages: send and receive | ✅ |
 | Replies (quotes), reactions, delete for everyone | ✅ |
-| Incoming edits shown with an "Edited" label | ✅ (sending edits is not supported) |
+| Editing messages: edit your own text messages within 24 hours; incoming edits are shown with an "Edited" label | ✅ |
+| Note to Self (syncs with your other devices) | ✅ |
 | Read and delivery receipts, typing indicators, read sync with your other devices | ✅ |
 | Sending attachments (file picker, up to 100 MB) | ✅ |
 | Receiving attachments (images inline, other files open in their default app) | ✅ |
@@ -126,7 +127,7 @@ script/test-linux.sh                                           # full suite in a
   (starts unlinked, creates encrypted stores).
 * **signal-app**: headless UI integration tests (`#[gpui_kit::test]`) drive the real
   views with clicks and keystrokes: open a chat, send, reply, search, new-chat picker,
-  archive, linking flow, drafts, notifications and the members panel. A rendering test
+  archive, linking flow, drafts, notifications, the members panel, editing and Note to Self. A rendering test
   paints every screen with the real GPU renderer in light and dark themes.
 
 CI (`.github/workflows/ci.yml`) runs fmt, clippy (`-D warnings`), tests, rendering tests
