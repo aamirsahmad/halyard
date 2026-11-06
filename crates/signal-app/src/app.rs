@@ -140,6 +140,8 @@ pub struct SignalApp {
     pub(crate) timeline: Rc<TimelineData>,
     pub(crate) replying_to: Option<Message>,
     pub(crate) editing: Option<Message>,
+    /// First unread message (id, count) when the chat was opened.
+    pub(crate) unread_anchor: Option<(i64, usize)>,
     pub(crate) pending_attachments: Vec<PathBuf>,
     pub(crate) list_mode: ListMode,
     pub(crate) contacts: Vec<Conversation>,
@@ -151,6 +153,9 @@ pub struct SignalApp {
     focus_override: Option<bool>,
     settings_path: Option<PathBuf>,
     pub(crate) attachments: Rc<crate::attachments::AttachmentAccess>,
+    pub(crate) composer_emoji: Entity<crate::views::emoji_picker::EmojiPicker>,
+    pub(crate) reaction_picker: Entity<crate::views::emoji_picker::EmojiPicker>,
+    pub(crate) reaction_target: Rc<std::cell::Cell<Option<i64>>>,
     pub(crate) focus: FocusHandle,
     _subscriptions: Vec<Subscription>,
 }
@@ -177,6 +182,40 @@ impl SignalApp {
                 .default_value(format!("Signal GPUI on {host}"))
         });
         let scroller = cx.new(|cx| MessageScrollerState::new(0, cx));
+        let weak = cx.entity().downgrade();
+        let composer_emoji = {
+            let weak = weak.clone();
+            cx.new(|cx| {
+                crate::views::emoji_picker::EmojiPicker::new(
+                    "composer-emoji",
+                    Rc::new(move |emoji, window, cx| {
+                        let _ = weak.update(cx, |this, cx| {
+                            this.composer
+                                .update(cx, |c, cx| c.insert(emoji, window, cx));
+                        });
+                    }),
+                    window,
+                    cx,
+                )
+            })
+        };
+        let reaction_target: Rc<std::cell::Cell<Option<i64>>> = Rc::default();
+        let reaction_picker = {
+            let target = reaction_target.clone();
+            cx.new(|cx| {
+                crate::views::emoji_picker::EmojiPicker::new(
+                    "reaction-emoji",
+                    Rc::new(move |emoji, window, cx| {
+                        if let Some(id) = target.take() {
+                            let _ = weak.update(cx, |this, cx| this.react(id, emoji, cx));
+                        }
+                        window.close_dialog(cx);
+                    }),
+                    window,
+                    cx,
+                )
+            })
+        };
 
         let subscriptions = vec![
             cx.subscribe_in(&search, window, |this, state, ev: &InputEvent, _, cx| {
@@ -230,6 +269,7 @@ impl SignalApp {
             }),
             replying_to: None,
             editing: None,
+            unread_anchor: None,
             pending_attachments: Vec::new(),
             list_mode: ListMode::Chats,
             contacts: Vec::new(),
@@ -241,6 +281,9 @@ impl SignalApp {
             focus_override: None,
             settings_path: None,
             attachments: Rc::default(),
+            composer_emoji,
+            reaction_picker,
+            reaction_target,
             focus: cx.focus_handle(),
             _subscriptions: subscriptions,
         };
@@ -478,6 +521,11 @@ impl SignalApp {
         let draft = conv.draft.clone().unwrap_or_default();
         let unread = conv.unread_count;
         let conv = self.normalize(conv);
+        let first_unread = messages
+            .iter()
+            .find(|m| !m.outgoing && !m.read && !m.is_notice())
+            .map(|m| m.id);
+        self.unread_anchor = first_unread.map(|id| (id, unread as usize));
         self.state.open(conv, messages, has_more);
         self.replying_to = None;
         self.editing = None;
@@ -499,6 +547,7 @@ impl SignalApp {
     }
 
     pub fn close_conversation(&mut self, cx: &mut Context<Self>) {
+        self.unread_anchor = None;
         self.save_draft(cx);
         self.stop_typing();
         self.state.close();
@@ -563,7 +612,10 @@ impl SignalApp {
 
     pub(crate) fn rebuild_timeline(&mut self, change: TimelineChange, cx: &mut Context<Self>) {
         let today = local_day(now_millis());
-        let items = build_timeline(self.state.messages(), today, local_day);
+        let mut items = build_timeline(self.state.messages(), today, local_day);
+        let marker = self.unread_anchor.and_then(|(id, n)| {
+            signal_core::timeline::insert_unread_marker(&mut items, self.state.messages(), id, n)
+        });
         let old_len = self.timeline.items.len();
         let new_len = items.len();
         self.timeline = Rc::new(TimelineData {
@@ -575,7 +627,13 @@ impl SignalApp {
             attachments: self.attachments.clone(),
         });
         self.scroller.update(cx, |s, cx| match change {
-            TimelineChange::Reset => s.reset(new_len, cx),
+            TimelineChange::Reset => {
+                s.reset(new_len, cx);
+                // open at the first unread message, like Signal
+                if let Some(ix) = marker {
+                    s.scroll_to_item(ix, cx);
+                }
+            }
             TimelineChange::Prepend if new_len >= old_len => {
                 s.prepend(new_len - old_len, cx);
                 s.remeasure(cx);
@@ -593,6 +651,42 @@ impl SignalApp {
             }
             _ => s.reset(new_len, cx),
         });
+    }
+
+    /// Scrolls the timeline to the message (e.g. the original of a quote),
+    /// loading older history if needed.
+    pub fn scroll_to_message(
+        &mut self,
+        author: Uuid,
+        sent_at: i64,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        for _ in 0..50 {
+            if let Some(m) = self
+                .state
+                .messages()
+                .iter()
+                .find(|m| m.author == author && m.sent_at == sent_at)
+            {
+                let id = m.id;
+                if let Some(ix) = signal_core::timeline::index_of_message(
+                    &self.timeline.items,
+                    &self.timeline.messages,
+                    id,
+                ) {
+                    self.scroller.update(cx, |s, cx| {
+                        s.scroll_to_item(ix, cx);
+                    });
+                }
+                return;
+            }
+            if !self.state.has_more_history {
+                break;
+            }
+            self.load_older(cx);
+        }
+        window.push_notification(Notification::info("Original message not found"), cx);
     }
 
     pub fn toggle_pinned(&mut self, id: ConversationId, cx: &mut Context<Self>) {

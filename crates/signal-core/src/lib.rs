@@ -9,6 +9,7 @@ pub mod format;
 pub mod ids;
 pub mod model;
 pub mod protocol;
+pub mod richtext;
 pub mod state;
 pub mod timeline;
 

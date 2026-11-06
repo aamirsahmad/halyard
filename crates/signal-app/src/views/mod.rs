@@ -3,9 +3,12 @@
 pub mod avatar;
 mod conversation;
 pub mod details;
+pub mod emoji_picker;
 mod link;
 pub mod menus;
 mod message;
+pub mod message_menu;
+pub mod rich_text;
 mod sidebar;
 
 pub use sidebar::{conversation_dom_id, conversation_element_id};

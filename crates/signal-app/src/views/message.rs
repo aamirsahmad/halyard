@@ -1,7 +1,11 @@
 //! Timeline rows: date separators and Signal-style message bubbles.
 
+use gpui_kit::Anchor;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
-use gpui_kit::component::menu::{ContextMenuExt as _, PopupMenuItem};
+use gpui_kit::component::menu::{ContextMenuExt as _, DropdownMenu as _};
+use gpui_kit::component::popover::Popover;
+
+use crate::views::message_menu::message_menu;
 use gpui_kit::component::{Icon, Sizable as _};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
@@ -52,6 +56,27 @@ pub fn render_timeline_item(
                     .text_color(p.text_secondary)
                     .child(label.clone()),
             )
+            .into_any_element(),
+        Some(TimelineItem::UnreadMarker(n)) => div()
+            .id("unread-marker")
+            .flex()
+            .items_center()
+            .gap_3()
+            .py_3()
+            .child(div().flex_1().h(px(1.)).bg(p.border))
+            .child(
+                div()
+                    .text_size(px(12.))
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(p.text_secondary)
+                    .child(if *n == 1 {
+                        "1 unread message".to_string()
+                    } else {
+                        format!("{n} unread messages")
+                    }),
+            )
+            .child(div().flex_1().h(px(1.)).bg(p.border))
+            .test_support()
             .into_any_element(),
         Some(TimelineItem::Message(tm)) => match data.messages.get(tm.index) {
             Some(m) => render_message(data, tm, m, p, app),
@@ -174,8 +199,17 @@ fn render_message(
                     .cloned()
                     .unwrap_or_else(|| "Unknown contact".into())
             };
+            let (q_author, q_sent) = (q.author, q.sent_at);
+            let a = app.clone();
             bubble = bubble.child(
                 div()
+                    .id(ElementId::Name(format!("quote-{id}").into()))
+                    .cursor_pointer()
+                    .on_click(move |_, window, cx| {
+                        let _ = a.update(cx, |this, cx| {
+                            this.scroll_to_message(q_author, q_sent, window, cx)
+                        });
+                    })
                     .flex()
                     .flex_col()
                     .p_2()
@@ -204,12 +238,15 @@ fn render_message(
             bubble = bubble.child(render_attachment(data, id, i, a, fg, meta));
         }
         if !m.body.is_empty() {
-            bubble = bubble.child(
-                div()
-                    .text_size(px(14.))
-                    .line_height(px(20.))
-                    .child(m.body.clone()),
-            );
+            bubble = bubble.child(crate::views::rich_text::render_body(
+                m.id,
+                &m.body,
+                &m.body_ranges,
+                &data.names,
+                data.me,
+                fg,
+                outgoing,
+            ));
         }
     }
 
@@ -229,88 +266,102 @@ fn render_message(
                         d.child(timer_short(at - now_millis()))
                     })
             })
-            .child(message_time(m.sent_at, now_millis()))
+            .child({
+                let full = chrono::DateTime::from_timestamp_millis(m.sent_at)
+                    .map(|t| {
+                        t.with_timezone(&chrono::Local)
+                            .format("%A, %B %-d, %Y %H:%M")
+                            .to_string()
+                    })
+                    .unwrap_or_default();
+                div()
+                    .id(ElementId::Name(format!("time-{id}").into()))
+                    .child(message_time(m.sent_at, now_millis()))
+                    .tooltip(move |window, cx| {
+                        gpui_kit::component::tooltip::Tooltip::new(full.clone()).build(window, cx)
+                    })
+            })
             .when(outgoing, |d| d.child(status_icon(m.status, meta))),
     );
 
     let bubble = bubble.context_menu({
         let app = app.clone();
-        let deletable = outgoing && !m.deleted;
-        let failed = m.status == MessageStatus::Failed;
-        let has_text = !m.body.is_empty();
-        let editable = m.editable(now_millis());
-        move |menu, _, _| {
-            let a = app.clone();
-            let mut menu = menu.item(
-                PopupMenuItem::new("Reply")
-                    .icon(Icon::new(Icons::Reply))
-                    .on_click(move |_, window, cx| {
-                        let _ = a.update(cx, |this, cx| this.reply_to(id, window, cx));
-                    }),
-            );
-            if editable {
-                let a = app.clone();
-                menu = menu.item(PopupMenuItem::new("Edit").on_click(move |_, window, cx| {
-                    let _ = a.update(cx, |this, cx| this.start_edit(id, window, cx));
-                }));
-            }
-            if has_text {
-                let a = app.clone();
-                menu = menu.item(PopupMenuItem::new("Copy text").on_click(move |_, _, cx| {
-                    let _ = a.update(cx, |this, cx| this.copy_text(id, cx));
-                }));
-            }
-            menu = menu.separator();
-            for emoji in QUICK_REACTIONS {
-                let a = app.clone();
-                menu = menu.item(PopupMenuItem::new(format!("React {emoji}")).on_click(
-                    move |_, _, cx| {
-                        let _ = a.update(cx, |this, cx| this.react(id, emoji, cx));
-                    },
-                ));
-            }
-            if failed {
-                let a = app.clone();
-                menu = menu
-                    .separator()
-                    .item(
-                        PopupMenuItem::new("Retry sending").on_click(move |_, _, cx| {
-                            let _ = a.update(cx, |this, cx| this.resend(id, cx));
-                        }),
-                    );
-            }
-            if deletable {
-                let a = app.clone();
-                menu = menu.separator().item(
-                    PopupMenuItem::new("Delete for everyone")
-                        .icon(Icon::new(Icons::Trash))
-                        .on_click(move |_, _, cx| {
-                            let _ = a.update(cx, |this, cx| this.delete_for_everyone(id, cx));
-                        }),
-                );
-            }
-            menu
-        }
+        let m = m.clone();
+        move |menu, _, _| message_menu(menu, app.clone(), &m)
     });
 
-    // hover actions beside the bubble (react / reply)
+    // hover actions beside the bubble: react, reply, more — like Signal
     let group_name: gpui_kit::SharedString = format!("msg-hover-{id}").into();
     let actions = (!m.deleted).then(|| {
-        let a1 = app.clone();
-        let a2 = app.clone();
+        let a_reply = app.clone();
+        let a_react = app.clone();
+        let a_more = app.clone();
+        let menu_msg = m.clone();
+        let palette = *p;
         div()
             .flex()
             .items_center()
             .invisible()
             .group_hover(group_name.clone(), |s| s.visible())
             .child(
-                Button::new(ElementId::Name(format!("react-{id}").into()))
-                    .ghost()
-                    .xsmall()
-                    .icon(Icon::new(Icons::FaceSlightlySmilingPlus))
-                    .tooltip("React ❤️")
-                    .on_click(move |_, _, cx| {
-                        let _ = a1.update(cx, |this, cx| this.react(id, QUICK_REACTIONS[0], cx));
+                Popover::new(ElementId::Name(format!("react-popover-{id}").into()))
+                    .anchor(if outgoing {
+                        Anchor::BottomRight
+                    } else {
+                        Anchor::BottomLeft
+                    })
+                    .trigger(
+                        Button::new(ElementId::Name(format!("react-{id}").into()))
+                            .ghost()
+                            .xsmall()
+                            .icon(Icon::new(Icons::FaceSlightlySmilingPlus))
+                            .tooltip("React"),
+                    )
+                    .content(move |_, _, cx| {
+                        let popover = cx.entity();
+                        let app = a_react.clone();
+                        div()
+                            .id(ElementId::Name(format!("reaction-bar-{id}").into()))
+                            .flex()
+                            .items_center()
+                            .gap_1()
+                            .children(QUICK_REACTIONS.iter().map(|emoji| {
+                                let app = app.clone();
+                                let popover = popover.clone();
+                                div()
+                                    .id(ElementId::Name(format!("quick-react-{id}-{emoji}").into()))
+                                    .size(px(36.))
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .rounded_full()
+                                    .text_size(px(22.))
+                                    .cursor_pointer()
+                                    .hover(|s| s.bg(palette.hover))
+                                    .child(*emoji)
+                                    .on_click(move |_, window, cx| {
+                                        let _ =
+                                            app.update(cx, |this, cx| this.react(id, emoji, cx));
+                                        popover.update(cx, |p, cx| p.dismiss(window, cx));
+                                    })
+                                    .test_support()
+                            }))
+                            .child({
+                                let app = app.clone();
+                                let popover = popover.clone();
+                                Button::new(ElementId::Name(format!("more-reactions-{id}").into()))
+                                    .ghost()
+                                    .small()
+                                    .icon(gpui_kit::component::IconName::Plus)
+                                    .tooltip("More reactions")
+                                    .on_click(move |_, window, cx| {
+                                        popover.update(cx, |p, cx| p.dismiss(window, cx));
+                                        let _ = app.update(cx, |this, cx| {
+                                            this.open_reaction_picker(id, window, cx)
+                                        });
+                                    })
+                            })
+                            .test_support()
                     }),
             )
             .child(
@@ -320,8 +371,16 @@ fn render_message(
                     .icon(Icon::new(Icons::Reply))
                     .tooltip("Reply")
                     .on_click(move |_, window, cx| {
-                        let _ = a2.update(cx, |this, cx| this.reply_to(id, window, cx));
+                        let _ = a_reply.update(cx, |this, cx| this.reply_to(id, window, cx));
                     }),
+            )
+            .child(
+                Button::new(ElementId::Name(format!("more-{id}").into()))
+                    .ghost()
+                    .xsmall()
+                    .icon(gpui_kit::component::IconName::Ellipsis)
+                    .tooltip("More actions")
+                    .dropdown_menu(move |menu, _, _| message_menu(menu, a_more.clone(), &menu_msg)),
             )
     });
 

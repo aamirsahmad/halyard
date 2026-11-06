@@ -11,7 +11,37 @@ pub const GROUPING_WINDOW_MS: Millis = 3 * 60 * 1000;
 #[derive(Clone, Debug, PartialEq)]
 pub enum TimelineItem {
     DateSeparator(String),
+    /// "N unread messages" divider before the first unread message.
+    UnreadMarker(usize),
     Message(TimelineMessage),
+}
+
+/// Inserts the unread divider before the message with id `first_unread`.
+/// Returns the index of the divider, if inserted.
+pub fn insert_unread_marker(
+    items: &mut Vec<TimelineItem>,
+    messages: &[Message],
+    first_unread: i64,
+    count: usize,
+) -> Option<usize> {
+    let msg_ix = messages.iter().position(|m| m.id == first_unread)?;
+    let mut at = items
+        .iter()
+        .position(|i| matches!(i, TimelineItem::Message(t) if t.index == msg_ix))?;
+    // keep a date separator directly above its first message
+    if at > 0 && matches!(items[at - 1], TimelineItem::DateSeparator(_)) {
+        at -= 1;
+    }
+    items.insert(at, TimelineItem::UnreadMarker(count));
+    Some(at)
+}
+
+/// Timeline index of the message with `id`.
+pub fn index_of_message(items: &[TimelineItem], messages: &[Message], id: i64) -> Option<usize> {
+    let msg_ix = messages.iter().position(|m| m.id == id)?;
+    items
+        .iter()
+        .position(|i| matches!(i, TimelineItem::Message(t) if t.index == msg_ix))
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -102,6 +132,7 @@ mod tests {
             .iter()
             .map(|i| match i {
                 TimelineItem::DateSeparator(s) => format!("[{s}]"),
+                TimelineItem::UnreadMarker(n) => format!("<{n}>"),
                 TimelineItem::Message(t) => format!(
                     "{}{}{}",
                     t.index,
@@ -132,6 +163,17 @@ mod tests {
             flags(&items),
             vec!["[Today]", "0F", "1L", "2FL", "3F", "4L"]
         );
+    }
+
+    #[test]
+    fn unread_marker_goes_above_date_separator() {
+        let msgs = vec![m(1, DAY - 1000), m(1, DAY + 1000), m(1, DAY + 2000)];
+        let mut items = build_timeline(&msgs, day_of(DAY), day_of);
+        // first unread is the first message of "Today"
+        let at = insert_unread_marker(&mut items, &msgs, DAY + 1000, 2).unwrap();
+        assert_eq!(flags(&items[at..at + 3]), vec!["<2>", "[Today]", "1F"]);
+        assert_eq!(index_of_message(&items, &msgs, DAY + 2000), Some(at + 3));
+        assert!(insert_unread_marker(&mut items, &msgs, 999, 1).is_none());
     }
 
     #[test]

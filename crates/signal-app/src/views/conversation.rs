@@ -1,9 +1,11 @@
 //! Right pane: conversation header, message timeline and composer.
 
+use gpui_kit::ExternalPaths;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::input::Textarea;
 use gpui_kit::component::menu::DropdownMenu as _;
 use gpui_kit::component::message_scroller::MessageScroller;
+use gpui_kit::component::popover::Popover;
 use gpui_kit::component::{Icon, IconName, Sizable as _};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
@@ -29,6 +31,7 @@ impl SignalApp {
         let Some(conv) = self.state.selected_conversation().cloned() else {
             return render_welcome(p);
         };
+        let drop_bg = p.hover;
         div()
             .id("conversation-pane")
             .flex()
@@ -40,6 +43,10 @@ impl SignalApp {
             .child(self.render_header(&conv, p, cx))
             .child(self.render_timeline(p, window, cx))
             .children(self.render_typing(&conv, p))
+            .drag_over::<ExternalPaths>(move |style, _, _, _| style.bg(drop_bg))
+            .on_drop(cx.listener(|this, paths: &ExternalPaths, _, cx| {
+                this.add_attachments(paths.paths().to_vec(), cx);
+            }))
             .child(if conv.blocked || !conv.accepted {
                 self.render_request_banner(&conv, p, cx)
             } else {
@@ -458,6 +465,20 @@ impl SignalApp {
                     .gap_2()
                     .px_4()
                     .pt_2()
+                    .child(
+                        Popover::new("emoji-popover")
+                            .anchor(gpui_kit::Anchor::BottomLeft)
+                            .trigger(
+                                Button::new("emoji")
+                                    .ghost()
+                                    .icon(Icon::new(Icons::FaceSlightlySmiling))
+                                    .tooltip("Emoji"),
+                            )
+                            .content({
+                                let picker = self.composer_emoji.clone();
+                                move |_, _, _| picker.clone()
+                            }),
+                    )
                     .child(
                         Button::new("attach")
                             .ghost()
