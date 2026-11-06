@@ -600,3 +600,21 @@ fn stories_list_and_viewer(cx: &mut TestAppContext) {
         assert_eq!(app.unviewed_story_count(), 1, "Carol's story is still new");
     });
 }
+
+#[gpui_kit::test]
+fn zoom_shortcuts_scale_the_ui(cx: &mut TestAppContext) {
+    let h = setup(cx);
+    let rem = |cx: &mut TestAppContext| cx.update_window(h.window, |_, w, _| w.rem_size()).unwrap();
+    assert_eq!(rem(cx), px(16.));
+    with_app(cx, &h, |_, w, cx| w.focus(&cx.focus_handle(), cx));
+    with_app(cx, &h, |a, w, cx| a.zoom(1, w, cx));
+    cx.update(|cx| assert_eq!(h.app.read(cx).prefs().zoom, 1.1));
+    assert_eq!(rem(cx), px(16. * 1.1));
+    with_app(cx, &h, |a, w, cx| {
+        a.zoom(-1, w, cx);
+        a.zoom(-1, w, cx);
+    });
+    cx.update(|cx| assert_eq!(h.app.read(cx).prefs().zoom, 0.9));
+    with_app(cx, &h, |a, w, cx| a.zoom(0, w, cx));
+    assert_eq!(rem(cx), px(16.));
+}

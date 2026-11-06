@@ -167,6 +167,15 @@ pub fn apply_signal_accent(cx: &mut App) {
     theme.link = accent;
 }
 
+/// Scales the whole UI: GPUI Kit derives the window's rem size from the
+/// theme font size, and the app's own layout is expressed in rems.
+pub fn apply_zoom(zoom: f32, window: &mut gpui_kit::Window, cx: &mut App) {
+    let size = gpui_kit::px(16. * zoom);
+    Theme::global_mut(cx).font_size = size;
+    window.set_rem_size(size);
+    window.refresh();
+}
+
 /// Converts a 0xRRGGBB value to a colour.
 pub fn hex(c: u32) -> Hsla {
     rgb(c).into()

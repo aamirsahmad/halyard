@@ -2,19 +2,19 @@
 
 use gpui_kit::component::Icon;
 use gpui_kit::{
-    App, IntoElement, ParentElement as _, Pixels, RenderOnce, SharedString, Styled as _, Window,
-    div, px,
+    App, IntoElement, ParentElement as _, Rems, RenderOnce, SharedString, Styled as _, Window, div,
 };
 use signal_core::avatar;
 
 use crate::assets::Icons;
 use crate::theme::hex;
+use crate::views::rem_px;
 
 #[derive(IntoElement)]
 pub struct Avatar {
     seed: Vec<u8>,
     name: SharedString,
-    size: Pixels,
+    size: Rems,
     group: bool,
     note: bool,
 }
@@ -24,13 +24,13 @@ impl Avatar {
         Self {
             seed: seed.into(),
             name: name.into(),
-            size: px(48.),
+            size: rem_px(48.),
             group: false,
             note: false,
         }
     }
 
-    pub fn size(mut self, size: Pixels) -> Self {
+    pub fn size(mut self, size: Rems) -> Self {
         self.size = size;
         self
     }

@@ -6,12 +6,13 @@ use gpui_kit::component::menu::{ContextMenuExt as _, DropdownMenu as _};
 use gpui_kit::component::popover::Popover;
 
 use crate::views::message_menu::message_menu;
+use crate::views::rem_px;
 use gpui_kit::component::{Icon, Sizable as _};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AnyElement, App, ElementId, FontWeight, InteractiveElement as _, IntoElement, ObjectFit,
     ParentElement as _, StatefulInteractiveElement as _, Styled as _, StyledImage as _,
-    TestSupportExt as _, WeakEntity, Window, div, img, px,
+    TestSupportExt as _, WeakEntity, Window, div, img,
 };
 use signal_core::format::{file_size, message_time};
 use signal_core::timeline::{TimelineItem, TimelineMessage};
@@ -52,7 +53,7 @@ pub fn render_timeline_item(
                     .px_3()
                     .py_1()
                     .rounded_full()
-                    .text_size(px(12.))
+                    .text_size(rem_px(12.))
                     .font_weight(FontWeight::MEDIUM)
                     .text_color(p.text_secondary)
                     .child(label.clone()),
@@ -64,10 +65,10 @@ pub fn render_timeline_item(
             .items_center()
             .gap_3()
             .py_3()
-            .child(div().flex_1().h(px(1.)).bg(p.border))
+            .child(div().flex_1().h(rem_px(1.)).bg(p.border))
             .child(
                 div()
-                    .text_size(px(12.))
+                    .text_size(rem_px(12.))
                     .font_weight(FontWeight::MEDIUM)
                     .text_color(p.text_secondary)
                     .child(if *n == 1 {
@@ -76,7 +77,7 @@ pub fn render_timeline_item(
                         format!("{n} unread messages")
                     }),
             )
-            .child(div().flex_1().h(px(1.)).bg(p.border))
+            .child(div().flex_1().h(rem_px(1.)).bg(p.border))
             .test_support()
             .into_any_element(),
         Some(TimelineItem::Message(tm)) => match data.messages.get(tm.index) {
@@ -110,7 +111,7 @@ fn render_message(
             .items_center()
             .gap_1()
             .py_2()
-            .text_size(px(12.))
+            .text_size(rem_px(12.))
             .text_color(p.text_secondary)
             .child(Icon::new(Icons::Clock).xsmall())
             .child(timer_notice(who.as_deref(), *secs))
@@ -134,8 +135,8 @@ fn render_message(
     } else {
         (p.bubble_incoming, p.bubble_incoming_text, p.text_secondary)
     };
-    let big = px(BUBBLE_RADIUS);
-    let small = px(GROUPED_RADIUS);
+    let big = rem_px(BUBBLE_RADIUS);
+    let small = rem_px(GROUPED_RADIUS);
     // grouped bubbles get tight corners on the sender's side, like Signal
     let (tl, tr, bl, br) = if outgoing {
         (
@@ -158,8 +159,8 @@ fn render_message(
         .id(message_element_id(m))
         .flex()
         .flex_col()
-        .max_w(px(MAX_BUBBLE_WIDTH))
-        .min_w(px(60.))
+        .max_w(rem_px(MAX_BUBBLE_WIDTH))
+        .min_w(rem_px(60.))
         .px_3()
         .py_2()
         .gap_1()
@@ -173,7 +174,7 @@ fn render_message(
     if show_avatar_column && tm.first_in_group {
         bubble = bubble.child(
             div()
-                .text_size(px(13.))
+                .text_size(rem_px(13.))
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(hex(if p.dark {
                     author_color.bg
@@ -214,7 +215,7 @@ fn render_message(
                     .flex()
                     .flex_col()
                     .p_2()
-                    .rounded(px(8.))
+                    .rounded(rem_px(8.))
                     .border_l_4()
                     .border_color(if outgoing {
                         p.bubble_outgoing_text
@@ -228,11 +229,16 @@ fn render_message(
                     })
                     .child(
                         div()
-                            .text_size(px(12.))
+                            .text_size(rem_px(12.))
                             .font_weight(FontWeight::SEMIBOLD)
                             .child(quoted_author),
                     )
-                    .child(div().text_size(px(13.)).line_clamp(3).child(q.text.clone())),
+                    .child(
+                        div()
+                            .text_size(rem_px(13.))
+                            .line_clamp(3)
+                            .child(q.text.clone()),
+                    ),
             );
         }
         for (i, a) in m.attachments.iter().enumerate() {
@@ -245,9 +251,9 @@ fn render_message(
                     .id(ElementId::Name(format!("link-preview-{id}").into()))
                     .flex()
                     .flex_col()
-                    .gap(px(2.))
+                    .gap(rem_px(2.))
                     .p_2()
-                    .rounded(px(8.))
+                    .rounded(rem_px(8.))
                     .bg(if outgoing {
                         p.quote_outgoing
                     } else {
@@ -259,15 +265,20 @@ fn render_message(
                         d.child(
                             div()
                                 .font_weight(FontWeight::SEMIBOLD)
-                                .text_size(px(13.))
+                                .text_size(rem_px(13.))
                                 .line_clamp(2)
                                 .child(t),
                         )
                     })
                     .when_some(lp.description.clone(), |d, t| {
-                        d.child(div().text_size(px(12.)).line_clamp(2).child(t))
+                        d.child(div().text_size(rem_px(12.)).line_clamp(2).child(t))
                     })
-                    .child(div().text_size(px(11.)).text_color(meta).child(lp.domain()))
+                    .child(
+                        div()
+                            .text_size(rem_px(11.))
+                            .text_color(meta)
+                            .child(lp.domain()),
+                    )
                     .test_support(),
             );
         }
@@ -291,7 +302,7 @@ fn render_message(
             .items_center()
             .justify_end()
             .gap_1()
-            .text_size(px(11.))
+            .text_size(rem_px(11.))
             .text_color(meta)
             .when(m.edited_at.is_some() && !m.deleted, |d| d.child("Edited"))
             .when_some(m.expires_in_secs, |d, _| {
@@ -364,12 +375,12 @@ fn render_message(
                                 let popover = popover.clone();
                                 div()
                                     .id(ElementId::Name(format!("quick-react-{id}-{emoji}").into()))
-                                    .size(px(36.))
+                                    .size(rem_px(36.))
                                     .flex()
                                     .items_center()
                                     .justify_center()
                                     .rounded_full()
-                                    .text_size(px(22.))
+                                    .text_size(rem_px(22.))
                                     .cursor_pointer()
                                     .hover(|s| s.bg(palette.hover))
                                     .child(*emoji)
@@ -423,7 +434,7 @@ fn render_message(
         div()
             .flex()
             .gap_1()
-            .mt(px(-6.))
+            .mt(rem_px(-6.))
             .when(outgoing, |d| d.justify_end().pr_2())
             .when(!outgoing, |d| d.pl_2())
             .children(reactions.into_iter().map(|(emoji, count)| {
@@ -438,12 +449,12 @@ fn render_message(
                     .items_center()
                     .gap_1()
                     .px_2()
-                    .py(px(1.))
+                    .py(rem_px(1.))
                     .rounded_full()
                     .border_1()
                     .border_color(p.background)
                     .bg(p.reaction_bg)
-                    .text_size(px(12.))
+                    .text_size(rem_px(12.))
                     .child(emoji)
                     .when(count > 1, |d| d.child(count.to_string()))
             }))
@@ -456,7 +467,7 @@ fn render_message(
             .justify_end()
             .items_center()
             .gap_1()
-            .text_size(px(12.))
+            .text_size(rem_px(12.))
             .text_color(p.danger)
             .child(Icon::new(gpui_kit::component::IconName::CircleAlert).xsmall())
             .child("Not sent.")
@@ -497,14 +508,14 @@ fn render_message(
         .items_end()
         .when(outgoing, |d| d.justify_end())
         .when(tm.last_in_group, |d| d.pb_2())
-        .when(!tm.last_in_group, |d| d.pb(px(2.)))
+        .when(!tm.last_in_group, |d| d.pb(rem_px(2.)))
         .when(show_avatar_column, |d| {
             d.child(if tm.last_in_group {
                 Avatar::new(m.author.as_bytes().to_vec(), author_name)
-                    .size(px(28.))
+                    .size(rem_px(28.))
                     .into_any_element()
             } else {
-                div().w(px(28.)).flex_none().into_any_element()
+                div().w(rem_px(28.)).flex_none().into_any_element()
             })
         })
         .child(column)
@@ -550,7 +561,7 @@ fn render_attachment(
             .id(ElementId::Name(
                 format!("attachment-{msg_id}-{index}").into(),
             ))
-            .rounded(px(12.))
+            .rounded(rem_px(12.))
             .overflow_hidden()
             .cursor_pointer()
             .on_click({
@@ -568,8 +579,8 @@ fn render_attachment(
                     Some(image) => img(image),
                     None => img(std::path::PathBuf::from(path)),
                 }
-                .w(px(w))
-                .h(px(h))
+                .w(rem_px(w))
+                .h(rem_px(h))
                 .object_fit(ObjectFit::Cover),
             )
             .test_support()
@@ -601,7 +612,7 @@ fn render_attachment(
             .flex()
             .items_center()
             .gap_2()
-            .min_w(px(220.))
+            .min_w(rem_px(220.))
             .py_1()
             .child(
                 Button::new(ElementId::Name(
@@ -628,7 +639,7 @@ fn render_attachment(
                     .gap_1()
                     .child(
                         div()
-                            .h(px(4.))
+                            .h(rem_px(4.))
                             .w_full()
                             .rounded_full()
                             .bg(meta.opacity(0.35))
@@ -640,7 +651,7 @@ fn render_attachment(
                                     .w(gpui_kit::relative(fraction)),
                             ),
                     )
-                    .child(div().text_size(px(11.)).text_color(meta).child(clock)),
+                    .child(div().text_size(rem_px(11.)).text_color(meta).child(clock)),
             )
             .test_support()
             .into_any_element();
@@ -668,9 +679,9 @@ fn render_attachment(
         })
         .child(
             div()
-                .size(px(36.))
+                .size(rem_px(36.))
                 .flex_none()
-                .rounded(px(8.))
+                .rounded(rem_px(8.))
                 .flex()
                 .items_center()
                 .justify_center()
@@ -699,7 +710,7 @@ fn render_attachment(
                 )
                 .child(
                     div()
-                        .text_size(px(12.))
+                        .text_size(rem_px(12.))
                         .text_color(meta)
                         .child(if downloading {
                             format!("{} · Downloading…", file_size(a.size))

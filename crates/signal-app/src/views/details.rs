@@ -6,13 +6,14 @@ use gpui_kit::component::dialog::Dialog;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     ElementId, FontWeight, InteractiveElement as _, ParentElement as _,
-    StatefulInteractiveElement as _, Styled as _, TestSupportExt as _, div, px,
+    StatefulInteractiveElement as _, Styled as _, TestSupportExt as _, div,
 };
 use signal_core::ConversationId;
 use uuid::Uuid;
 
 use crate::theme::Palette;
 use crate::views::avatar::Avatar;
+use crate::views::rem_px;
 
 pub fn details_dialog(
     dialog: Dialog,
@@ -33,18 +34,18 @@ pub fn details_dialog(
             Avatar::new(id.color_seed(), title.to_string())
                 .note_to_self(me.is_some_and(|me| id == ConversationId::Direct(me)))
                 .group(id.is_group())
-                .size(px(72.)),
+                .size(rem_px(72.)),
         )
         .child(
             div()
-                .text_size(px(18.))
+                .text_size(rem_px(18.))
                 .font_weight(FontWeight::SEMIBOLD)
                 .child(title.to_string()),
         )
         .when(id.is_group(), |d| {
             d.child(
                 div()
-                    .text_size(px(13.))
+                    .text_size(rem_px(13.))
                     .text_color(p.text_secondary)
                     .child(format!("Group · {} members", members.len())),
             )
@@ -58,7 +59,7 @@ pub fn details_dialog(
             .items_center()
             .gap_3()
             .py_2()
-            .child(Avatar::new(uuid.as_bytes().to_vec(), name.clone()).size(px(36.)))
+            .child(Avatar::new(uuid.as_bytes().to_vec(), name.clone()).size(rem_px(36.)))
             .child(
                 div()
                     .flex()
@@ -68,7 +69,7 @@ pub fn details_dialog(
                     .when_some(phone, |d, phone| {
                         d.child(
                             div()
-                                .text_size(px(12.))
+                                .text_size(rem_px(12.))
                                 .text_color(p.text_secondary)
                                 .child(phone),
                         )
@@ -83,7 +84,7 @@ pub fn details_dialog(
         } else {
             "Chat details"
         })
-        .w(px(380.))
+        .w(gpui_kit::px(380.))
         .child(
             div()
                 .id("conversation-details-panel")
@@ -102,7 +103,7 @@ pub fn details_dialog(
                         .id("member-list")
                         .flex()
                         .flex_col()
-                        .max_h(px(360.))
+                        .max_h(rem_px(360.))
                         .overflow_y_scroll()
                         .children(rows),
                 )

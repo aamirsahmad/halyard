@@ -53,7 +53,8 @@ Legend: ✅ done · 🚧 partial · ⬜ not yet · ✖ not supported (reason giv
 | Block / unblock contacts | ✅ |
 | Safety number view | ✅ |
 | Leave group | ✖ presage has no group-change (membership) API yet |
-| Voice notes: recording and playback | ✖ no audio stack yet; voice notes open in the default player |
+| Voice notes and audio attachments: in-app playback with progress | ✅ |
+| Recording voice notes | ✖ needs an AAC encoder; not available in pure Rust yet |
 
 ## Composer
 
@@ -76,6 +77,7 @@ Legend: ✅ done · 🚧 partial · ⬜ not yet · ✖ not supported (reason giv
 | Preferences: notifications on/off, notification content, read receipts, typing indicators, Enter-to-send, theme | ✅ |
 | Keyboard shortcuts and shortcuts dialog | ✅ |
 | Profile / linked-device info, unlink | ✅ |
-| Zoom in / out | ✖ GPUI has no global UI scale yet |
-| Stories | ⬜ not planned yet |
+| Zoom in / out / actual size (⌘/Ctrl + / − / 0), saved in preferences | ✅ |
+| Stories: view contacts' text and photo stories (24 h), unviewed rings, viewer | ✅ |
+| Posting your own stories, replying to stories | ⬜ |
 | Voice / video calls | out of scope |

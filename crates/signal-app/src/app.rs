@@ -274,6 +274,7 @@ impl SignalApp {
             cx.observe_window_appearance(window, |this, window, cx| {
                 if this.prefs.appearance == Appearance::System {
                     apply_appearance(Appearance::System, Some(window), cx);
+                    crate::theme::apply_zoom(this.prefs.zoom, window, cx);
                     cx.notify();
                 }
             }),
@@ -339,7 +340,7 @@ impl SignalApp {
                         window.push_notification(Notification::error(e), cx);
                     }
                     let audio = this.audio.is_active();
-                    let countdown = tick % 4 == 0
+                    let countdown = tick.is_multiple_of(4)
                         && this.state.messages().iter().any(|m| m.expires_at.is_some());
                     if audio || countdown || this.audio_was_active {
                         cx.notify();
@@ -1227,6 +1228,7 @@ impl SignalApp {
         cx: &mut Context<Self>,
     ) {
         apply_appearance(prefs.appearance, Some(window), cx);
+        crate::theme::apply_zoom(prefs.zoom, window, cx);
         let enter_sends = prefs.enter_sends;
         self.composer
             .update(cx, |c, cx| c.set_submit_on_enter(enter_sends, cx));
@@ -1255,6 +1257,16 @@ impl SignalApp {
         let mut prefs = self.prefs.clone();
         f(&mut prefs);
         self.apply_prefs(prefs, window, cx);
+    }
+
+    /// Zooms in (`dir > 0`), out (`dir < 0`) or back to 100% (`0`).
+    pub fn zoom(&mut self, dir: i32, window: &mut Window, cx: &mut Context<Self>) {
+        let z = if dir == 0 {
+            1.0
+        } else {
+            crate::settings::step_zoom(self.prefs.zoom, dir)
+        };
+        self.update_prefs(|p| p.zoom = z, window, cx);
     }
 
     pub fn set_appearance(

@@ -16,6 +16,12 @@ pub mod stories;
 
 pub use sidebar::{conversation_dom_id, conversation_element_id};
 
+/// A length given in design pixels at 100% zoom; scales with the window's
+/// rem size, which the zoom preference controls.
+pub fn rem_px(v: f32) -> gpui_kit::Rems {
+    gpui_kit::rems(v / 16.)
+}
+
 use gpui_kit::{
     Context, InteractiveElement as _, IntoElement, ParentElement as _, Render, Styled as _, Window,
     div,
@@ -23,7 +29,8 @@ use gpui_kit::{
 use signal_core::AccountState;
 
 use crate::actions::{
-    CloseChat, FocusSearch, NewChat, NextChat, OpenPreferences, PrevChat, ShowShortcuts,
+    CloseChat, FocusSearch, NewChat, NextChat, OpenPreferences, PrevChat, ShowShortcuts, ZoomIn,
+    ZoomOut, ZoomReset,
 };
 use crate::app::{ListMode, SignalApp};
 use crate::theme::Palette;
@@ -39,7 +46,7 @@ impl Render for SignalApp {
             .flex()
             .bg(p.background)
             .text_color(p.text)
-            .text_size(gpui_kit::px(14.));
+            .text_size(rem_px(14.));
 
         match &self.state.account {
             AccountState::Registered(_) => root
@@ -63,6 +70,9 @@ impl Render for SignalApp {
                 .on_action(cx.listener(|this, _: &ShowShortcuts, window, cx| {
                     this.open_shortcuts(window, cx)
                 }))
+                .on_action(cx.listener(|this, _: &ZoomIn, window, cx| this.zoom(1, window, cx)))
+                .on_action(cx.listener(|this, _: &ZoomOut, window, cx| this.zoom(-1, window, cx)))
+                .on_action(cx.listener(|this, _: &ZoomReset, window, cx| this.zoom(0, window, cx)))
                 .on_action(cx.listener(|this, _: &CloseChat, window, cx| {
                     if this.editing.is_some() {
                         this.cancel_edit(window, cx);

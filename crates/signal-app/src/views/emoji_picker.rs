@@ -8,11 +8,11 @@ use gpui_kit::{
     AnyElement, App, AppContext as _, Context, ElementId, Entity, FocusHandle, Focusable,
     FontWeight, InteractiveElement as _, IntoElement, ParentElement as _, Render, SharedString,
     StatefulInteractiveElement as _, Styled as _, Subscription, TestSupportExt as _, Window, div,
-    px,
 };
 
 use crate::emoji::{CATEGORIES, search};
 use crate::theme::Palette;
+use crate::views::rem_px;
 
 pub type OnPick = Rc<dyn Fn(&str, &mut Window, &mut App)>;
 
@@ -57,12 +57,12 @@ impl EmojiPicker {
         let on_pick = self.on_pick.clone();
         div()
             .id(ElementId::Name(format!("{}-{emoji}", self.id).into()))
-            .size(px(36.))
+            .size(rem_px(36.))
             .flex()
             .items_center()
             .justify_center()
-            .rounded(px(8.))
-            .text_size(px(22.))
+            .rounded(rem_px(8.))
+            .text_size(rem_px(22.))
             .cursor_pointer()
             .hover(|s| s.bg(p.hover))
             .on_click(move |_, window, cx| on_pick(emoji, window, cx))
@@ -88,7 +88,7 @@ impl Render for EmojiPicker {
                     div()
                         .pt_2()
                         .pb_1()
-                        .text_size(px(12.))
+                        .text_size(rem_px(12.))
                         .font_weight(FontWeight::SEMIBOLD)
                         .text_color(p.text_secondary)
                         .child(cat.name)
@@ -126,8 +126,8 @@ impl Render for EmojiPicker {
             .id(ElementId::Name(self.id.clone()))
             .flex()
             .flex_col()
-            .w(px(340.))
-            .h(px(340.))
+            .w(rem_px(340.))
+            .h(rem_px(340.))
             .gap_2()
             .child(
                 Input::new(&self.search).small().prefix(

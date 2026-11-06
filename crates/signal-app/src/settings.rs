@@ -43,7 +43,7 @@ impl NotificationContent {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Preferences {
     pub appearance: Appearance,
     pub notifications: bool,
@@ -52,6 +52,20 @@ pub struct Preferences {
     pub typing_indicators: bool,
     /// Enter sends (Shift+Enter for a newline); otherwise ⌘/Ctrl+Enter sends.
     pub enter_sends: bool,
+    /// UI zoom factor (1.0 = 100%).
+    pub zoom: f32,
+}
+
+/// Zoom steps offered by ⌘/Ctrl +/−, like Signal Desktop.
+pub const ZOOM_STEPS: [f32; 7] = [0.75, 0.9, 1.0, 1.1, 1.25, 1.5, 1.75];
+
+/// The next zoom step up (`dir > 0`) or down from `current`.
+pub fn step_zoom(current: f32, dir: i32) -> f32 {
+    let ix = ZOOM_STEPS
+        .iter()
+        .position(|z| (z - current).abs() < 0.01)
+        .unwrap_or(2) as i32;
+    ZOOM_STEPS[(ix + dir).clamp(0, ZOOM_STEPS.len() as i32 - 1) as usize]
 }
 
 impl Default for Preferences {
@@ -63,6 +77,7 @@ impl Default for Preferences {
             read_receipts: true,
             typing_indicators: true,
             enter_sends: true,
+            zoom: 1.0,
         }
     }
 }
@@ -105,6 +120,13 @@ impl Preferences {
                     p.typing_indicators = parse_bool(v).unwrap_or(p.typing_indicators)
                 }
                 "enter_sends" => p.enter_sends = parse_bool(v).unwrap_or(p.enter_sends),
+                "zoom" => {
+                    if let Ok(z) = v.trim().parse::<f32>()
+                        && (0.5..=2.0).contains(&z)
+                    {
+                        p.zoom = z;
+                    }
+                }
                 _ => {}
             }
         }
@@ -119,12 +141,13 @@ impl Preferences {
         };
         let text = format!(
             "appearance={appearance}\nnotifications={}\nnotification_content={}\nread_receipts={}\n\
-             typing_indicators={}\nenter_sends={}\n",
+             typing_indicators={}\nenter_sends={}\nzoom={}\n",
             self.notifications,
             self.notification_content.key(),
             self.read_receipts,
             self.typing_indicators,
             self.enter_sends,
+            self.zoom,
         );
         let tmp = path.with_extension("conf.tmp");
         std::fs::write(&tmp, text)?;
@@ -148,6 +171,7 @@ mod tests {
             read_receipts: false,
             typing_indicators: false,
             enter_sends: false,
+            zoom: 1.25,
         };
         p.save(&path).unwrap();
         assert_eq!(Preferences::load(&path), p);
@@ -161,6 +185,15 @@ mod tests {
         let p = Preferences::load(&path);
         assert_eq!(p.appearance, Appearance::Light);
         assert!(p.read_receipts, "invalid values keep the default");
+    }
+
+    #[test]
+    fn zoom_steps() {
+        assert_eq!(step_zoom(1.0, 1), 1.1);
+        assert_eq!(step_zoom(1.0, -1), 0.9);
+        assert_eq!(step_zoom(1.75, 1), 1.75);
+        assert_eq!(step_zoom(0.75, -1), 0.75);
+        assert_eq!(step_zoom(1.33, 1), 1.1, "unknown values restart from 100%");
     }
 
     #[test]

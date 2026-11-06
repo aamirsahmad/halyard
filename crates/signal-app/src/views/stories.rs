@@ -10,7 +10,7 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AnyElement, Context, ElementId, FontWeight, Hsla, InteractiveElement as _, IntoElement,
     ObjectFit, ParentElement as _, StatefulInteractiveElement as _, Styled as _, StyledImage as _,
-    TestSupportExt as _, Window, div, img, px, rgba,
+    TestSupportExt as _, Window, div, img, rgba,
 };
 use signal_core::format::conversation_list_time;
 use signal_core::{Mutation, Story, now_millis};
@@ -19,6 +19,7 @@ use uuid::Uuid;
 use crate::app::SignalApp;
 use crate::theme::Palette;
 use crate::views::avatar::Avatar;
+use crate::views::rem_px;
 
 /// Stories grouped by author, newest author first; each group oldest first.
 pub fn group_by_author(stories: &[Story]) -> Vec<(Uuid, Vec<Story>)> {
@@ -44,7 +45,7 @@ pub fn group_by_author(stories: &[Story]) -> Vec<(Uuid, Vec<Story>)> {
 
 fn argb(c: u32) -> Hsla {
     // Signal colours are 0xAARRGGBB; gpui's rgba takes 0xRRGGBBAA
-    rgba((c << 8) | (c >> 24)).into()
+    rgba(c.rotate_left(8)).into()
 }
 
 impl SignalApp {
@@ -89,9 +90,9 @@ impl SignalApp {
                     .flex()
                     .items_center()
                     .gap_3()
-                    .h(px(64.))
+                    .h(rem_px(64.))
                     .px_3()
-                    .rounded(px(10.))
+                    .rounded(rem_px(10.))
                     .cursor_pointer()
                     .hover(|s| s.bg(p.hover))
                     .on_click(cx.listener(move |this, _, window, cx| {
@@ -99,12 +100,13 @@ impl SignalApp {
                     }))
                     .child(
                         div()
-                            .p(px(2.))
+                            .p(rem_px(2.))
                             .rounded_full()
                             .border_2()
                             .border_color(if unviewed { p.accent } else { p.border })
                             .child(
-                                Avatar::new(author.as_bytes().to_vec(), name.clone()).size(px(40.)),
+                                Avatar::new(author.as_bytes().to_vec(), name.clone())
+                                    .size(rem_px(40.)),
                             ),
                     )
                     .child(
@@ -123,17 +125,20 @@ impl SignalApp {
                                     })
                                     .child(name),
                             )
-                            .child(div().text_size(px(13.)).text_color(p.text_secondary).child(
-                                format!(
-                                    "{} · {}",
-                                    if count == 1 {
-                                        "1 story".to_string()
-                                    } else {
-                                        format!("{count} stories")
-                                    },
-                                    conversation_list_time(latest, now)
-                                ),
-                            )),
+                            .child(
+                                div()
+                                    .text_size(rem_px(13.))
+                                    .text_color(p.text_secondary)
+                                    .child(format!(
+                                        "{} · {}",
+                                        if count == 1 {
+                                            "1 story".to_string()
+                                        } else {
+                                            format!("{count} stories")
+                                        },
+                                        conversation_list_time(latest, now)
+                                    )),
+                            ),
                     )
                     .test_support()
                     .into_any_element(),
@@ -187,7 +192,7 @@ impl SignalApp {
                 (Some(text), None) => div()
                     .p_6()
                     .text_center()
-                    .text_size(px(26.))
+                    .text_size(rem_px(26.))
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_color(story.foreground.map(argb).unwrap_or(gpui_kit::white()))
                     .child(text.clone())
@@ -228,7 +233,7 @@ impl SignalApp {
                     "{name} · {}",
                     conversation_list_time(story.sent_at, now_millis())
                 ))
-                .w(px(440.))
+                .w(gpui_kit::px(440.))
                 .child(
                     div()
                         .flex()
@@ -242,8 +247,8 @@ impl SignalApp {
                                 .flex_1()
                                 .items_center()
                                 .justify_center()
-                                .h(px(520.))
-                                .rounded(px(16.))
+                                .h(rem_px(520.))
+                                .rounded(rem_px(16.))
                                 .overflow_hidden()
                                 .bg(bg)
                                 .child(content)
@@ -258,7 +263,7 @@ impl SignalApp {
                         .gap_1()
                         .pt_2()
                         .children((0..stories.len()).map(|i| {
-                            div().flex_1().h(px(3.)).rounded_full().bg(if i <= ix {
+                            div().flex_1().h(rem_px(3.)).rounded_full().bg(if i <= ix {
                                 rgba(0x2C6BEDFF)
                             } else {
                                 rgba(0x8888884D)

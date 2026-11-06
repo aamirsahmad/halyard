@@ -1,13 +1,13 @@
 //! Preferences, keyboard shortcuts and profile dialogs.
 
-use gpui_kit::component::WindowExt as _;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::kbd::Kbd;
 use gpui_kit::component::radio::RadioGroup;
 use gpui_kit::component::switch::Switch;
+use gpui_kit::component::{Sizable as _, WindowExt as _};
 use gpui_kit::{
     AnyElement, Context, FontWeight, InteractiveElement as _, IntoElement, Keystroke,
-    ParentElement as _, Styled as _, TestSupportExt as _, WeakEntity, Window, div, px,
+    ParentElement as _, Styled as _, TestSupportExt as _, WeakEntity, Window, div,
 };
 use signal_core::AccountState;
 
@@ -15,12 +15,13 @@ use crate::app::SignalApp;
 use crate::settings::{NotificationContent, Preferences};
 use crate::theme::{Appearance, Palette};
 use crate::views::avatar::Avatar;
+use crate::views::rem_px;
 
 fn section(title: &'static str, p: &Palette) -> AnyElement {
     div()
         .pt_3()
         .pb_1()
-        .text_size(px(12.))
+        .text_size(rem_px(12.))
         .font_weight(FontWeight::SEMIBOLD)
         .text_color(p.text_secondary)
         .child(title)
@@ -55,6 +56,9 @@ pub const SHORTCUTS: &[(&str, &str)] = &[
     ("alt-up", "Previous chat"),
     ("cmd-,", "Preferences"),
     ("cmd-/", "Keyboard shortcuts"),
+    ("cmd-=", "Zoom in"),
+    ("cmd--", "Zoom out"),
+    ("cmd-0", "Actual size"),
     ("enter", "Send message"),
     ("shift-enter", "New line"),
     ("escape", "Cancel reply / edit, close panels"),
@@ -68,6 +72,9 @@ pub const SHORTCUTS: &[(&str, &str)] = &[
     ("alt-up", "Previous chat"),
     ("ctrl-,", "Preferences"),
     ("ctrl-/", "Keyboard shortcuts"),
+    ("ctrl-=", "Zoom in"),
+    ("ctrl--", "Zoom out"),
+    ("ctrl-0", "Actual size"),
     ("enter", "Send message"),
     ("shift-enter", "New line"),
     ("escape", "Cancel reply / edit, close panels"),
@@ -93,7 +100,7 @@ impl SignalApp {
                 .iter()
                 .position(|c| *c == prefs.notification_content)
                 .unwrap_or(0);
-            dialog.title("Preferences").w(px(480.)).child(
+            dialog.title("Preferences").w(gpui_kit::px(480.)).child(
                 div()
                     .id("preferences")
                     .flex()
@@ -111,6 +118,31 @@ impl SignalApp {
                                     .update(cx, |this, cx| this.set_appearance(a, window, cx));
                             }),
                     )
+                    .child(section("Zoom", &p))
+                    .child({
+                        let (a_out, a_in, a_reset) = (app.clone(), app.clone(), app.clone());
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap_2()
+                            .child(Button::new("zoom-out").outline().small().label("−").on_click(move |_, w, cx| {
+                                let _ = a_out.update(cx, |this, cx| this.zoom(-1, w, cx));
+                            }))
+                            .child(
+                                div()
+                                    .id("zoom-level")
+                                    .w(rem_px(56.))
+                                    .text_center()
+                                    .child(format!("{:.0}%", prefs.zoom * 100.))
+                                    .test_support(),
+                            )
+                            .child(Button::new("zoom-in").outline().small().label("+").on_click(move |_, w, cx| {
+                                let _ = a_in.update(cx, |this, cx| this.zoom(1, w, cx));
+                            }))
+                            .child(Button::new("zoom-reset").ghost().small().label("Reset").on_click(move |_, w, cx| {
+                                let _ = a_reset.update(cx, |this, cx| this.zoom(0, w, cx));
+                            }))
+                    })
                     .child(section("Notifications", &p))
                     .child(switch(
                         &app,
@@ -121,7 +153,7 @@ impl SignalApp {
                     ))
                     .child(
                         div()
-                            .text_size(px(13.))
+                            .text_size(rem_px(13.))
                             .text_color(p.text_secondary)
                             .child("Show"),
                     )
@@ -159,7 +191,7 @@ impl SignalApp {
                         prefs.typing_indicators,
                         |p, v| p.typing_indicators = v,
                     ))
-                    .child(div().text_size(px(12.)).text_color(p.text_secondary).child(
+                    .child(div().text_size(rem_px(12.)).text_color(p.text_secondary).child(
                         "If read receipts or typing indicators are off, you won't send them.",
                     ))
                     .test_support(),
@@ -170,27 +202,30 @@ impl SignalApp {
     pub fn open_shortcuts(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         window.open_dialog(cx, move |dialog, _, cx| {
             let p = Palette::current(cx);
-            dialog.title("Keyboard shortcuts").w(px(420.)).child(
-                div()
-                    .id("shortcuts")
-                    .flex()
-                    .flex_col()
-                    .gap_2()
-                    .children(SHORTCUTS.iter().map(|(keys, label)| {
-                        div()
-                            .flex()
-                            .items_center()
-                            .justify_between()
-                            .child(div().text_color(p.text).child(*label))
-                            .child({
-                                match Keystroke::parse(keys) {
-                                    Ok(k) => Kbd::new(k).into_any_element(),
-                                    Err(_) => div().child(*keys).into_any_element(),
-                                }
-                            })
-                    }))
-                    .test_support(),
-            )
+            dialog
+                .title("Keyboard shortcuts")
+                .w(gpui_kit::px(420.))
+                .child(
+                    div()
+                        .id("shortcuts")
+                        .flex()
+                        .flex_col()
+                        .gap_2()
+                        .children(SHORTCUTS.iter().map(|(keys, label)| {
+                            div()
+                                .flex()
+                                .items_center()
+                                .justify_between()
+                                .child(div().text_color(p.text).child(*label))
+                                .child({
+                                    match Keystroke::parse(keys) {
+                                        Ok(k) => Kbd::new(k).into_any_element(),
+                                        Err(_) => div().child(*keys).into_any_element(),
+                                    }
+                                })
+                        }))
+                        .test_support(),
+                )
         });
     }
 
@@ -208,7 +243,7 @@ impl SignalApp {
                     .py_1()
                     .child(
                         div()
-                            .w(px(110.))
+                            .w(rem_px(110.))
                             .flex_none()
                             .text_color(p.text_secondary)
                             .child(label),
@@ -218,14 +253,14 @@ impl SignalApp {
             let app = app.clone();
             dialog
                 .title("Profile")
-                .w(px(440.))
+                .w(gpui_kit::px(440.))
                 .child(
                     div()
                         .id("profile")
                         .flex()
                         .flex_col()
                         .gap_2()
-                        .text_size(px(13.))
+                        .text_size(rem_px(13.))
                         .child(
                             div()
                                 .flex()
@@ -234,11 +269,12 @@ impl SignalApp {
                                 .gap_2()
                                 .pb_2()
                                 .child(
-                                    Avatar::new(info.aci.as_bytes().to_vec(), "You").size(px(72.)),
+                                    Avatar::new(info.aci.as_bytes().to_vec(), "You")
+                                        .size(rem_px(72.)),
                                 )
                                 .child(
                                     div()
-                                        .text_size(px(16.))
+                                        .text_size(rem_px(16.))
                                         .font_weight(FontWeight::SEMIBOLD)
                                         .child(
                                             info.phone_number

@@ -12,6 +12,9 @@ gpui_kit::actions!(
         CloseChat,
         OpenPreferences,
         ShowShortcuts,
+        ZoomIn,
+        ZoomOut,
+        ZoomReset,
         Quit
     ]
 );
@@ -24,6 +27,10 @@ mod keys {
     pub const QUIT: &str = "cmd-q";
     pub const PREFS: &str = "cmd-,";
     pub const SHORTCUTS: &str = "cmd-/";
+    pub const ZOOM_IN: &str = "cmd-=";
+    pub const ZOOM_IN_PLUS: &str = "cmd-+";
+    pub const ZOOM_OUT: &str = "cmd--";
+    pub const ZOOM_RESET: &str = "cmd-0";
 }
 #[cfg(not(target_os = "macos"))]
 mod keys {
@@ -32,6 +39,10 @@ mod keys {
     pub const QUIT: &str = "ctrl-q";
     pub const PREFS: &str = "ctrl-,";
     pub const SHORTCUTS: &str = "ctrl-/";
+    pub const ZOOM_IN: &str = "ctrl-=";
+    pub const ZOOM_IN_PLUS: &str = "ctrl-+";
+    pub const ZOOM_OUT: &str = "ctrl--";
+    pub const ZOOM_RESET: &str = "ctrl-0";
 }
 
 pub fn bind_keys(cx: &mut App) {
@@ -45,6 +56,10 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("escape", CloseChat, Some("SignalApp")),
         KeyBinding::new(keys::PREFS, OpenPreferences, Some("SignalApp")),
         KeyBinding::new(keys::SHORTCUTS, ShowShortcuts, Some("SignalApp")),
+        KeyBinding::new(keys::ZOOM_IN, ZoomIn, Some("SignalApp")),
+        KeyBinding::new(keys::ZOOM_IN_PLUS, ZoomIn, Some("SignalApp")),
+        KeyBinding::new(keys::ZOOM_OUT, ZoomOut, Some("SignalApp")),
+        KeyBinding::new(keys::ZOOM_RESET, ZoomReset, Some("SignalApp")),
         KeyBinding::new(keys::QUIT, Quit, None),
     ]);
     cx.on_action(|_: &Quit, cx| cx.quit());

@@ -6,9 +6,11 @@ use std::rc::Rc;
 use gpui_kit::{
     AnyElement, ElementId, FontStyle, FontWeight, HighlightStyle, Hsla, InteractiveText,
     IntoElement, ParentElement as _, StrikethroughStyle, Styled as _, StyledText, UnderlineStyle,
-    div, hsla, px,
+    div, hsla,
 };
 use signal_core::BodyRange;
+
+use crate::views::rem_px;
 use signal_core::richtext::{SpanStyle, layout};
 use uuid::Uuid;
 
@@ -22,7 +24,7 @@ fn highlight(s: &SpanStyle, fg: Hsla, outgoing: bool) -> HighlightStyle {
     }
     if s.strikethrough {
         h.strikethrough = Some(StrikethroughStyle {
-            thickness: px(1.),
+            thickness: gpui_kit::px(1.),
             color: None,
         });
     }
@@ -42,7 +44,7 @@ fn highlight(s: &SpanStyle, fg: Hsla, outgoing: bool) -> HighlightStyle {
     }
     if s.link {
         h.underline = Some(UnderlineStyle {
-            thickness: px(1.),
+            thickness: gpui_kit::px(1.),
             color: None,
             wavy: false,
         });
@@ -71,7 +73,7 @@ pub fn render_body(
             names.get(u).cloned().unwrap_or_else(|| "Unknown".into())
         }
     });
-    let base = div().text_size(px(14.)).line_height(px(20.));
+    let base = div().text_size(rem_px(14.)).line_height(rem_px(20.));
     if rich.is_plain() {
         return base.child(rich.text).into_any_element();
     }

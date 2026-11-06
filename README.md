@@ -23,11 +23,12 @@ comparison. Highlights:
 | Rich content | Bold / italic / strikethrough / monospace / spoiler formatting, @mentions, clickable links, link-preview cards, stickers, shared contacts, image viewer with Save As, file attachments (picker or drag and drop, up to 100 MB) |
 | Privacy | Disappearing messages (timer, countdown, notices), message requests (accept / block / delete), block / unblock, safety numbers, read receipts and typing indicators toggles, notification content setting |
 | Chat list | Pin, timed mute, mark read/unread, archive, delete, drafts, typing previews, search across chats and messages, search within a chat, unread divider |
-| App | Light / dark / system themes with Signal's accent, desktop notifications, unread count in the title, keyboard shortcuts (⌘/Ctrl+N, ⌘/Ctrl+F, Alt+↑/↓, ⌘/Ctrl+, , ⌘/Ctrl+/, Esc) |
+| Stories & media | Contacts' stories (text and photo, 24 h) with a viewer; voice notes and audio files play in the app |
+| App | Zoom (⌘/Ctrl + / − / 0), light / dark / system themes with Signal's accent, desktop notifications, unread count in the title, keyboard shortcuts (⌘/Ctrl+N, ⌘/Ctrl+F, Alt+↑/↓, ⌘/Ctrl+, , ⌘/Ctrl+/, Esc) |
 | Storage | Encrypted (SQLCipher) protocol and message stores, AES-256-GCM encrypted attachment store |
 
 Not supported yet: registering as a primary device, phone-number contact discovery, leaving
-groups, voice-note recording/playback, stories, zoom. Voice and video calls are planned.
+groups, recording voice notes, posting stories. Voice and video calls are planned.
 
 ## Architecture
 

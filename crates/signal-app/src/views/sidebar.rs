@@ -8,7 +8,7 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AnyElement, Context, ElementId, FontWeight, InteractiveElement as _, IntoElement,
     ParentElement as _, SharedString, StatefulInteractiveElement as _, Styled as _,
-    TestSupportExt as _, Window, div, px,
+    TestSupportExt as _, Window, div,
 };
 use signal_core::format::conversation_list_time;
 use signal_core::{ConnectionState, Conversation, ConversationId, Message, now_millis};
@@ -17,6 +17,7 @@ use crate::app::{ListMode, SignalApp};
 use crate::assets::Icons;
 use crate::theme::{Appearance, Palette};
 use crate::views::avatar::Avatar;
+use crate::views::rem_px;
 
 pub const SIDEBAR_WIDTH: f32 = 320.;
 
@@ -47,7 +48,7 @@ impl SignalApp {
             .flex()
             .items_center()
             .gap_2()
-            .h(px(56.))
+            .h(rem_px(56.))
             .px_4()
             .flex_none()
             .when(self.list_mode != ListMode::Chats, |d| {
@@ -71,7 +72,7 @@ impl SignalApp {
                             .on_click(
                                 cx.listener(|this, _, window, cx| this.open_profile(window, cx)),
                             )
-                            .child(Avatar::new(me.as_bytes().to_vec(), "You").size(px(28.)))
+                            .child(Avatar::new(me.as_bytes().to_vec(), "You").size(rem_px(28.)))
                             .test_support(),
                     )
                 })
@@ -79,7 +80,7 @@ impl SignalApp {
             .child(
                 div()
                     .flex_1()
-                    .text_size(px(18.))
+                    .text_size(rem_px(18.))
                     .font_weight(FontWeight::SEMIBOLD)
                     .child(title),
             )
@@ -103,9 +104,9 @@ impl SignalApp {
                                 div()
                                     .id("stories-badge")
                                     .absolute()
-                                    .top(px(2.))
-                                    .right(px(2.))
-                                    .size(px(8.))
+                                    .top(rem_px(2.))
+                                    .right(rem_px(2.))
+                                    .size(rem_px(8.))
                                     .rounded_full()
                                     .bg(p.badge)
                                     .test_support(),
@@ -148,7 +149,7 @@ impl SignalApp {
             .flex()
             .flex_col()
             .flex_none()
-            .w(px(SIDEBAR_WIDTH))
+            .w(rem_px(SIDEBAR_WIDTH))
             .h_full()
             .bg(p.pane)
             .border_r_1()
@@ -217,8 +218,8 @@ impl SignalApp {
                 .mb_2()
                 .px_3()
                 .py_2()
-                .rounded(px(8.))
-                .text_size(px(12.))
+                .rounded(rem_px(8.))
+                .text_size(rem_px(12.))
                 .when(!busy, |d| d.bg(p.warning_bg))
                 .when(busy, |d| d.bg(p.hover))
                 .text_color(p.text_secondary)
@@ -290,9 +291,9 @@ impl SignalApp {
                     .mx_4()
                     .my_2()
                     .py_2()
-                    .rounded(px(8.))
+                    .rounded(rem_px(8.))
                     .text_center()
-                    .text_size(px(13.))
+                    .text_size(rem_px(13.))
                     .text_color(p.text_secondary)
                     .cursor_pointer()
                     .hover(|s| s.bg(p.hover))
@@ -363,9 +364,9 @@ impl SignalApp {
             .flex()
             .items_center()
             .gap_3()
-            .h(px(72.))
+            .h(rem_px(72.))
             .px_3()
-            .rounded(px(10.))
+            .rounded(rem_px(10.))
             .cursor_pointer()
             .when(selected, |d| d.bg(p.selected))
             .when(!selected, |d| d.hover(|s| s.bg(p.hover)))
@@ -376,7 +377,7 @@ impl SignalApp {
                 Avatar::new(id.color_seed(), conv.title.clone())
                     .note_to_self(self.is_note_to_self(&id))
                     .group(id.is_group())
-                    .size(px(48.)),
+                    .size(rem_px(48.)),
             )
             .child(
                 div()
@@ -384,7 +385,7 @@ impl SignalApp {
                     .flex_col()
                     .flex_1()
                     .min_w_0()
-                    .gap(px(2.))
+                    .gap(rem_px(2.))
                     .child(
                         div()
                             .flex()
@@ -415,7 +416,7 @@ impl SignalApp {
                             .child(
                                 div()
                                     .flex_none()
-                                    .text_size(px(12.))
+                                    .text_size(rem_px(12.))
                                     .text_color(p.text_secondary)
                                     .child(conversation_list_time(conv.last_activity, now)),
                             ),
@@ -429,7 +430,7 @@ impl SignalApp {
                                 div()
                                     .flex_1()
                                     .min_w_0()
-                                    .text_size(px(13.))
+                                    .text_size(rem_px(13.))
                                     .text_color(if unread > 0 { p.text } else { p.text_secondary })
                                     .child(preview),
                             )
@@ -438,7 +439,7 @@ impl SignalApp {
                                     div()
                                         .id(SharedString::from(format!("marked-unread-{id}")))
                                         .flex_none()
-                                        .size(px(12.))
+                                        .size(rem_px(12.))
                                         .rounded_full()
                                         .bg(p.badge)
                                         .test_support(),
@@ -449,9 +450,9 @@ impl SignalApp {
                                     div()
                                         .id(SharedString::from(format!("unread-{id}")))
                                         .flex_none()
-                                        .min_w(px(20.))
-                                        .h(px(20.))
-                                        .px(px(6.))
+                                        .min_w(rem_px(20.))
+                                        .h(rem_px(20.))
+                                        .px(rem_px(6.))
                                         .rounded_full()
                                         .bg(if conv.muted {
                                             p.text_secondary
@@ -459,7 +460,7 @@ impl SignalApp {
                                             p.badge
                                         })
                                         .text_color(p.accent_text)
-                                        .text_size(px(11.))
+                                        .text_size(rem_px(11.))
                                         .font_weight(FontWeight::BOLD)
                                         .flex()
                                         .items_center()
@@ -519,9 +520,9 @@ impl SignalApp {
             .flex()
             .items_center()
             .gap_3()
-            .h(px(64.))
+            .h(rem_px(64.))
             .px_3()
-            .rounded(px(10.))
+            .rounded(rem_px(10.))
             .cursor_pointer()
             .hover(|s| s.bg(p.hover))
             .on_click(
@@ -531,7 +532,7 @@ impl SignalApp {
                 Avatar::new(conv_id.color_seed(), title.clone())
                     .note_to_self(self.is_note_to_self(&conv_id))
                     .group(conv_id.is_group())
-                    .size(px(36.)),
+                    .size(rem_px(36.)),
             )
             .child(
                 div()
@@ -551,7 +552,7 @@ impl SignalApp {
                             )
                             .child(
                                 div()
-                                    .text_size(px(12.))
+                                    .text_size(rem_px(12.))
                                     .text_color(p.text_secondary)
                                     .child(conversation_list_time(m.sent_at, now)),
                             ),
@@ -559,7 +560,7 @@ impl SignalApp {
                     .child(
                         div()
                             .truncate()
-                            .text_size(px(13.))
+                            .text_size(rem_px(13.))
                             .text_color(p.text_secondary)
                             .child(m.preview()),
                     ),
@@ -591,9 +592,9 @@ impl SignalApp {
                     .flex()
                     .items_center()
                     .gap_3()
-                    .h(px(56.))
+                    .h(rem_px(56.))
                     .px_3()
-                    .rounded(px(10.))
+                    .rounded(rem_px(10.))
                     .cursor_pointer()
                     .hover(|s| s.bg(p.hover))
                     .on_click(cx.listener(move |this, _, window, cx| {
@@ -603,7 +604,7 @@ impl SignalApp {
                         Avatar::new(id.color_seed(), c.title.clone())
                             .note_to_self(self.is_note_to_self(&id))
                             .group(id.is_group())
-                            .size(px(36.)),
+                            .size(rem_px(36.)),
                     )
                     .child(div().flex_1().truncate().child(c.title.clone()))
                     .test_support()
@@ -627,7 +628,7 @@ fn section_label(label: &'static str, p: &Palette) -> AnyElement {
         .px_3()
         .pt_3()
         .pb_1()
-        .text_size(px(12.))
+        .text_size(rem_px(12.))
         .font_weight(FontWeight::SEMIBOLD)
         .text_color(p.text_secondary)
         .child(label)

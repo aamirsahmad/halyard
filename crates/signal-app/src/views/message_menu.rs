@@ -13,7 +13,7 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AnyElement, Context, ElementId, FontWeight, InteractiveElement as _, IntoElement,
     ParentElement as _, StatefulInteractiveElement as _, Styled as _, TestSupportExt as _,
-    WeakEntity, Window, div, px,
+    WeakEntity, Window, div,
 };
 use signal_core::{ConversationId, Message, MessageStatus, now_millis};
 
@@ -21,6 +21,7 @@ use crate::app::SignalApp;
 use crate::assets::Icons;
 use crate::theme::Palette;
 use crate::views::avatar::Avatar;
+use crate::views::rem_px;
 
 fn item(
     app: &WeakEntity<SignalApp>,
@@ -122,7 +123,10 @@ impl SignalApp {
         self.reaction_picker.update(cx, |p, cx| p.reset(window, cx));
         let picker = self.reaction_picker.clone();
         window.open_dialog(cx, move |dialog, _, _| {
-            dialog.title("React").w(px(380.)).child(picker.clone())
+            dialog
+                .title("React")
+                .w(gpui_kit::px(380.))
+                .child(picker.clone())
         });
     }
 
@@ -176,7 +180,7 @@ impl SignalApp {
                         .child(
                             Avatar::new(id.color_seed(), title.clone())
                                 .group(id.is_group())
-                                .size(px(28.)),
+                                .size(rem_px(28.)),
                         )
                         .child(div().truncate().child(title.clone()))
                         .test_support()
@@ -188,7 +192,7 @@ impl SignalApp {
             let sel = selected.clone();
             dialog
                 .title("Forward message")
-                .w(px(420.))
+                .w(gpui_kit::px(420.))
                 .child(
                     div()
                         .flex()
@@ -197,16 +201,16 @@ impl SignalApp {
                         .child(
                             div()
                                 .p_2()
-                                .rounded(px(8.))
+                                .rounded(rem_px(8.))
                                 .bg(palette.input_bg)
-                                .text_size(px(13.))
+                                .text_size(rem_px(13.))
                                 .line_clamp(2)
                                 .child(preview.clone()),
                         )
                         .child(
                             div()
                                 .id("forward-list")
-                                .max_h(px(320.))
+                                .max_h(rem_px(320.))
                                 .overflow_y_scroll()
                                 .children(rows),
                         ),
@@ -312,20 +316,20 @@ impl SignalApp {
                     .py_1()
                     .child(
                         div()
-                            .w(px(120.))
+                            .w(rem_px(120.))
                             .flex_none()
                             .text_color(palette.text_secondary)
                             .child(label),
                     )
                     .child(div().flex_1().child(value))
             };
-            dialog.title("Message info").w(px(480.)).child(
+            dialog.title("Message info").w(gpui_kit::px(480.)).child(
                 div()
                     .id("message-info")
                     .flex()
                     .flex_col()
                     .gap_4()
-                    .text_size(px(13.))
+                    .text_size(rem_px(13.))
                     .child(
                         div()
                             .flex()
@@ -343,7 +347,7 @@ impl SignalApp {
                                     div()
                                         .flex()
                                         .gap_2()
-                                        .child(div().text_size(px(18.)).child(e.clone()))
+                                        .child(div().text_size(rem_px(18.)).child(e.clone()))
                                         .child(who.clone())
                                 })),
                         )

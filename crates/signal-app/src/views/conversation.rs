@@ -11,7 +11,7 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AnyElement, Context, ElementId, FontWeight, InteractiveElement as _, IntoElement,
     ParentElement as _, StatefulInteractiveElement as _, Styled as _, TestSupportExt as _, Window,
-    div, px,
+    div,
 };
 use signal_core::Conversation;
 
@@ -20,6 +20,7 @@ use crate::assets::Icons;
 use crate::theme::Palette;
 use crate::views::avatar::Avatar;
 use crate::views::message::render_timeline_item;
+use crate::views::rem_px;
 
 impl SignalApp {
     pub(super) fn render_conversation_pane(
@@ -85,7 +86,7 @@ impl SignalApp {
             .flex_none()
             .items_center()
             .gap_3()
-            .h(px(56.))
+            .h(rem_px(56.))
             .px_4()
             .border_b_1()
             .border_color(p.border)
@@ -105,7 +106,7 @@ impl SignalApp {
                         Avatar::new(id.color_seed(), conv.title.clone())
                             .note_to_self(self.is_note_to_self(&id))
                             .group(id.is_group())
-                            .size(px(32.)),
+                            .size(rem_px(32.)),
                     )
                     .child(
                         div()
@@ -134,7 +135,7 @@ impl SignalApp {
                                                 .flex_none()
                                                 .items_center()
                                                 .gap_1()
-                                                .text_size(px(12.))
+                                                .text_size(rem_px(12.))
                                                 .text_color(p.text_secondary)
                                                 .child(Icon::new(Icons::Clock).xsmall())
                                                 .child(signal_core::timer_label(secs))
@@ -145,7 +146,7 @@ impl SignalApp {
                             .when(!subtitle.is_empty(), |d| {
                                 d.child(
                                     div()
-                                        .text_size(px(12.))
+                                        .text_size(rem_px(12.))
                                         .text_color(p.text_secondary)
                                         .child(subtitle),
                                 )
@@ -197,9 +198,9 @@ impl SignalApp {
         let has_more = self.state.has_more_history;
         let row_style = {
             let mut s = gpui_kit::StyleRefinement::default();
-            s.padding.bottom = Some(px(0.).into());
-            s.padding.left = Some(px(16.).into());
-            s.padding.right = Some(px(16.).into());
+            s.padding.bottom = Some(rem_px(0.).into());
+            s.padding.left = Some(rem_px(16.).into());
+            s.padding.right = Some(rem_px(16.).into());
             s
         };
         div()
@@ -253,7 +254,7 @@ impl SignalApp {
                     .flex_col()
                     .px_3()
                     .py_2()
-                    .rounded(px(8.))
+                    .rounded(rem_px(8.))
                     .cursor_pointer()
                     .hover(|s| s.bg(p.hover))
                     .on_click(cx.listener(move |this, _, window, cx| {
@@ -263,7 +264,7 @@ impl SignalApp {
                         div()
                             .flex()
                             .justify_between()
-                            .text_size(px(12.))
+                            .text_size(rem_px(12.))
                             .text_color(p.text_secondary)
                             .child(who)
                             .child(signal_core::format::conversation_list_time(
@@ -271,7 +272,7 @@ impl SignalApp {
                                 signal_core::now_millis(),
                             )),
                     )
-                    .child(div().truncate().text_size(px(13.)).child(m.preview()))
+                    .child(div().truncate().text_size(rem_px(13.)).child(m.preview()))
                     .test_support()
                     .into_any_element()
             })
@@ -314,7 +315,7 @@ impl SignalApp {
                     d.child(
                         div()
                             .id("conversation-search-results")
-                            .max_h(px(260.))
+                            .max_h(rem_px(260.))
                             .overflow_y_scroll()
                             .children(results),
                     )
@@ -322,7 +323,7 @@ impl SignalApp {
                 .when(empty, |d| {
                     d.child(
                         div()
-                            .text_size(px(13.))
+                            .text_size(rem_px(13.))
                             .text_color(p.text_secondary)
                             .child("No results"),
                     )
@@ -397,7 +398,7 @@ impl SignalApp {
             .child(
                 div()
                     .text_center()
-                    .text_size(px(13.))
+                    .text_size(rem_px(13.))
                     .text_color(p.text_secondary)
                     .child(text),
             )
@@ -423,7 +424,7 @@ impl SignalApp {
                 .id("typing-indicator")
                 .px_6()
                 .py_1()
-                .text_size(px(12.))
+                .text_size(rem_px(12.))
                 .italic()
                 .text_color(p.text_secondary)
                 .child(text)
@@ -447,7 +448,7 @@ impl SignalApp {
                 .mx_4()
                 .mt_2()
                 .p_2()
-                .rounded(px(8.))
+                .rounded(rem_px(8.))
                 .bg(p.input_bg)
                 .border_l_4()
                 .border_color(p.accent)
@@ -459,14 +460,14 @@ impl SignalApp {
                         .min_w_0()
                         .child(
                             div()
-                                .text_size(px(12.))
+                                .text_size(rem_px(12.))
                                 .font_weight(FontWeight::SEMIBOLD)
                                 .child(author),
                         )
                         .child(
                             div()
                                 .truncate()
-                                .text_size(px(13.))
+                                .text_size(rem_px(13.))
                                 .text_color(p.text_secondary)
                                 .child(m.preview()),
                         ),
@@ -491,7 +492,7 @@ impl SignalApp {
                 .mx_4()
                 .mt_2()
                 .p_2()
-                .rounded(px(8.))
+                .rounded(rem_px(8.))
                 .bg(p.input_bg)
                 .border_l_4()
                 .border_color(p.accent)
@@ -503,14 +504,14 @@ impl SignalApp {
                         .min_w_0()
                         .child(
                             div()
-                                .text_size(px(12.))
+                                .text_size(rem_px(12.))
                                 .font_weight(FontWeight::SEMIBOLD)
                                 .child("Edit message"),
                         )
                         .child(
                             div()
                                 .truncate()
-                                .text_size(px(13.))
+                                .text_size(rem_px(13.))
                                 .text_color(p.text_secondary)
                                 .child(m.preview()),
                         ),
@@ -549,11 +550,11 @@ impl SignalApp {
                                 .items_center()
                                 .gap_1()
                                 .pl_2()
-                                .rounded(px(8.))
+                                .rounded(rem_px(8.))
                                 .bg(p.input_bg)
-                                .text_size(px(12.))
+                                .text_size(rem_px(12.))
                                 .child(Icon::new(Icons::Paperclip).xsmall())
-                                .child(div().max_w(px(180.)).truncate().child(name))
+                                .child(div().max_w(rem_px(180.)).truncate().child(name))
                                 .child(
                                     Button::new(ElementId::Name(
                                         format!("remove-attachment-{i}").into(),
@@ -615,7 +616,7 @@ impl SignalApp {
                         div()
                             .flex_1()
                             .min_w_0()
-                            .rounded(px(18.))
+                            .rounded(rem_px(18.))
                             .bg(p.input_bg)
                             .px_2()
                             .child(
@@ -653,7 +654,7 @@ fn render_welcome(p: &Palette) -> AnyElement {
         .bg(p.background)
         .child(
             div()
-                .size(px(72.))
+                .size(rem_px(72.))
                 .rounded_full()
                 .bg(p.accent)
                 .flex()
@@ -661,13 +662,13 @@ fn render_welcome(p: &Palette) -> AnyElement {
                 .justify_center()
                 .child(
                     Icon::new(Icons::MessageCircle)
-                        .size(px(36.))
+                        .size(rem_px(36.))
                         .text_color(p.accent_text),
                 ),
         )
         .child(
             div()
-                .text_size(px(22.))
+                .text_size(rem_px(22.))
                 .font_weight(FontWeight::SEMIBOLD)
                 .child("Welcome to Signal"),
         )
@@ -682,7 +683,7 @@ fn render_welcome(p: &Palette) -> AnyElement {
                 .items_center()
                 .gap_1()
                 .mt_4()
-                .text_size(px(12.))
+                .text_size(rem_px(12.))
                 .text_color(p.text_secondary)
                 .child(Icon::new(Icons::Lock).xsmall())
                 .child("Messages are end-to-end encrypted"),

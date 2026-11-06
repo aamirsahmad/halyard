@@ -163,6 +163,12 @@ mod rendering {
             app.set_list_mode(signal_app::app::ListMode::Stories, window, cx);
             app.open_story_viewer(signal_backend::demo::DEMO_ALICE, window, cx);
         });
+        let zoomed = capture("zoom-125", ThemeMode::Light, |app, window, cx| {
+            registered(app, window, cx);
+            app.update_prefs(|p| p.zoom = 1.25, window, cx);
+            app.open_conversation(ConversationId::Direct(DEMO_ALICE), window, cx);
+        });
+        assert_ne!(zoomed.as_raw(), dark.as_raw());
         let _members = capture("group-members", ThemeMode::Light, |app, window, cx| {
             registered(app, window, cx);
             app.open_conversation(ConversationId::Group(DEMO_GROUP), window, cx);
