@@ -54,6 +54,8 @@ impl SignalApp {
         let id = conv.id;
         let subtitle = if conv.is_group() {
             format!("{} members", conv.members.len())
+        } else if self.is_note_to_self(&id) {
+            "Only you can see these messages".to_string()
         } else {
             self.db
                 .contact(&id.direct_uuid().unwrap_or_default())
@@ -84,7 +86,9 @@ impl SignalApp {
                     .gap_3()
                     .cursor_pointer()
                     .on_click(cx.listener(move |this, _, window, cx| this.show_details(id, window, cx)))
-                    .child(Avatar::new(id.color_seed(), conv.title.clone()).group(id.is_group()).size(px(32.)))
+                    .child(Avatar::new(id.color_seed(), conv.title.clone())
+                    .note_to_self(self.is_note_to_self(&id))
+                    .group(id.is_group()).size(px(32.)))
                     .child(
                         div()
                             .flex()
@@ -278,6 +282,50 @@ impl SignalApp {
                 .test_support()
         });
 
+        let editing = self.editing.as_ref().map(|m| {
+            div()
+                .id("edit-banner")
+                .flex()
+                .items_center()
+                .gap_2()
+                .mx_4()
+                .mt_2()
+                .p_2()
+                .rounded(px(8.))
+                .bg(p.input_bg)
+                .border_l_4()
+                .border_color(p.accent)
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .flex_1()
+                        .min_w_0()
+                        .child(
+                            div()
+                                .text_size(px(12.))
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .child("Edit message"),
+                        )
+                        .child(
+                            div()
+                                .truncate()
+                                .text_size(px(13.))
+                                .text_color(p.text_secondary)
+                                .child(m.preview()),
+                        ),
+                )
+                .child(
+                    Button::new("cancel-edit")
+                        .ghost()
+                        .xsmall()
+                        .icon(Icon::new(Icons::X))
+                        .tooltip("Cancel editing")
+                        .on_click(cx.listener(|this, _, window, cx| this.cancel_edit(window, cx))),
+                )
+                .test_support()
+        });
+
         let attachments = (!self.pending_attachments.is_empty()).then(|| {
             div()
                 .id("pending-attachments")
@@ -331,6 +379,7 @@ impl SignalApp {
             .flex_none()
             .pb_3()
             .children(reply)
+            .children(editing)
             .children(attachments)
             .child(
                 div()

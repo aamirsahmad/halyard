@@ -14,8 +14,8 @@ use presage::Manager;
 use presage::libsignal_service::configuration::SignalServers;
 use presage::libsignal_service::content::ContentBody;
 use presage::libsignal_service::proto::{
-    DataMessage, GroupContextV2, ReceiptMessage, SyncMessage, TypingMessage, data_message,
-    receipt_message, sync_message, typing_message,
+    DataMessage, EditMessage, GroupContextV2, ReceiptMessage, SyncMessage, TypingMessage,
+    data_message, receipt_message, sync_message, typing_message,
 };
 use presage::libsignal_service::protocol::{Aci, ServiceId};
 use presage::libsignal_service::sender::AttachmentSpec;
@@ -145,6 +145,7 @@ enum Internal {
         uuid: Uuid,
         name: Option<String>,
     },
+    Error(String),
 }
 
 struct Worker {
@@ -354,12 +355,24 @@ impl Worker {
         };
         let members: Vec<Uuid> = g.members.iter().map(|m| m.aci.into()).collect();
         // same normalisation as the database applies
-        let title = if g.title.trim().is_empty() { "Unnamed group".to_string() } else { g.title };
-        let current = self.db.conversation(&ConversationId::Group(key)).ok().flatten();
+        let title = if g.title.trim().is_empty() {
+            "Unnamed group".to_string()
+        } else {
+            g.title
+        };
+        let current = self
+            .db
+            .conversation(&ConversationId::Group(key))
+            .ok()
+            .flatten();
         if current.is_some_and(|c| c.title == title && c.members == members) {
             return;
         }
-        let ch = self.apply(Mutation::UpsertGroup { key, title, members });
+        let ch = self.apply(Mutation::UpsertGroup {
+            key,
+            title,
+            members,
+        });
         self.emit_changes(ch);
     }
 
@@ -445,6 +458,7 @@ impl Worker {
                     self.emit_changes(ch);
                 }
             }
+            Internal::Error(e) => self.emit(BackendEvent::Error(e)),
             Internal::Profile { uuid, name } => {
                 if let Some(name) = name.filter(|n| !n.trim().is_empty()) {
                     let ch = self.apply(Mutation::UpsertContact(Contact {
@@ -640,6 +654,43 @@ impl Worker {
                     ..Default::default()
                 };
                 self.spawn_send(conversation, dm, at, false);
+            }
+            BackendCommand::Edit {
+                conversation,
+                target_sent_at,
+                body,
+            } => {
+                let Some(me) = self.me else { return };
+                let body = body.trim_end().to_string();
+                if body.trim().is_empty() {
+                    return;
+                }
+                let at = self.next_ts();
+                let ch = self.apply(Mutation::Edit {
+                    conversation,
+                    author: me,
+                    target_sent_at,
+                    body: body.clone(),
+                    edited_at: at,
+                });
+                self.emit_changes(ch);
+                let Some(manager) = self.manager.clone() else {
+                    return;
+                };
+                let tx = self.internal_tx.clone();
+                spawn_local(async move {
+                    let dm = DataMessage {
+                        body: Some(body),
+                        timestamp: Some(at as u64),
+                        ..Default::default()
+                    };
+                    if let Err(e) =
+                        deliver_edit(manager, conversation, target_sent_at, dm, at).await
+                    {
+                        tracing::warn!(%e, "failed to send edit");
+                        let _ = tx.send(Internal::Error(format!("Edit not sent: {e}")));
+                    }
+                });
             }
             BackendCommand::MarkRead { conversation } => self.mark_read(conversation),
             BackendCommand::Typing {
@@ -1011,6 +1062,44 @@ async fn deliver(
                 .map_err(|e| e.to_string())
         }
     }
+}
+
+async fn group_context(manager: &Mgr, key: &GroupKey) -> GroupContextV2 {
+    let revision = match manager.store().group(key.0).await {
+        Ok(Some(g)) => g.revision,
+        _ => 0,
+    };
+    GroupContextV2 {
+        master_key: Some(key.0.to_vec()),
+        revision: Some(revision),
+        group_change: None,
+    }
+}
+
+async fn deliver_edit(
+    mut manager: Mgr,
+    conversation: ConversationId,
+    target_sent_at: Millis,
+    mut dm: DataMessage,
+    ts: Millis,
+) -> Result<(), String> {
+    if let ConversationId::Group(key) = &conversation {
+        dm.group_v2 = Some(group_context(&manager, key).await);
+    }
+    let edit = ContentBody::EditMessage(EditMessage {
+        target_sent_timestamp: Some(target_sent_at as u64),
+        data_message: Some(dm),
+    });
+    let ts = ts as u64;
+    match conversation {
+        ConversationId::Direct(uuid) => {
+            manager
+                .send_message(ServiceId::Aci(Aci::from(uuid)), edit, ts)
+                .await
+        }
+        ConversationId::Group(key) => manager.send_message_to_group(&key.0, edit, ts).await,
+    }
+    .map_err(|e| e.to_string())
 }
 
 /// Keeps a websocket open, reconnecting with exponential backoff.

@@ -39,6 +39,12 @@ pub enum BackendCommand {
         conversation: ConversationId,
         sent_at: Millis,
     },
+    /// Replace the text of one of our own messages.
+    Edit {
+        conversation: ConversationId,
+        target_sent_at: Millis,
+        body: String,
+    },
     /// The user has seen all messages in this conversation.
     MarkRead {
         conversation: ConversationId,

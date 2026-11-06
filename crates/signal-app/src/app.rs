@@ -139,6 +139,7 @@ pub struct SignalApp {
     pub(crate) scroller: Entity<MessageScrollerState>,
     pub(crate) timeline: Rc<TimelineData>,
     pub(crate) replying_to: Option<Message>,
+    pub(crate) editing: Option<Message>,
     pub(crate) pending_attachments: Vec<PathBuf>,
     pub(crate) list_mode: ListMode,
     pub(crate) contacts: Vec<Conversation>,
@@ -228,6 +229,7 @@ impl SignalApp {
                 attachments: Rc::default(),
             }),
             replying_to: None,
+            editing: None,
             pending_attachments: Vec::new(),
             list_mode: ListMode::Chats,
             contacts: Vec::new(),
@@ -266,6 +268,10 @@ impl SignalApp {
 
     pub fn composer(&self) -> &Entity<TextareaState> {
         &self.composer
+    }
+
+    pub fn editing(&self) -> Option<&Message> {
+        self.editing.as_ref()
     }
 
     pub fn replying_to(&self) -> Option<&Message> {
@@ -312,9 +318,27 @@ impl SignalApp {
         self.names = Rc::new(names);
     }
 
+    /// "Note to Self" title for our own conversation, like Signal.
+    pub const NOTE_TO_SELF: &'static str = "Note to Self";
+
+    pub fn is_note_to_self(&self, id: &ConversationId) -> bool {
+        self.me()
+            .is_some_and(|me| *id == ConversationId::Direct(me))
+    }
+
+    fn normalize(&self, mut conv: Conversation) -> Conversation {
+        if self.is_note_to_self(&conv.id) {
+            conv.title = Self::NOTE_TO_SELF.to_string();
+        }
+        conv
+    }
+
     fn reload_conversations(&mut self) {
         match self.db.conversations() {
-            Ok(list) => self.state.set_conversations(list),
+            Ok(list) => {
+                let list = list.into_iter().map(|c| self.normalize(c)).collect();
+                self.state.set_conversations(list)
+            }
             Err(e) => tracing::error!(%e, "failed to load conversations"),
         }
     }
@@ -365,6 +389,12 @@ impl SignalApp {
         let registered_now = matches!(&event, BackendEvent::Account(AccountState::Registered(_)));
         let names = self.names.clone();
         let me = self.me();
+        let event = match event {
+            BackendEvent::ConversationUpdated(c) => {
+                BackendEvent::ConversationUpdated(self.normalize(c))
+            }
+            other => other,
+        };
         let fx: Effects = self.state.apply(event, |u| {
             if Some(*u) == me {
                 "You".into()
@@ -432,8 +462,10 @@ impl SignalApp {
         let has_more = messages.len() == PAGE_SIZE;
         let draft = conv.draft.clone().unwrap_or_default();
         let unread = conv.unread_count;
+        let conv = self.normalize(conv);
         self.state.open(conv, messages, has_more);
         self.replying_to = None;
+        self.editing = None;
         self.pending_attachments.clear();
         if self.list_mode == ListMode::NewChat {
             self.list_mode = ListMode::Chats;
@@ -456,6 +488,7 @@ impl SignalApp {
         self.stop_typing();
         self.state.close();
         self.replying_to = None;
+        self.editing = None;
         self.pending_attachments.clear();
         self.rebuild_timeline(TimelineChange::Reset, cx);
         cx.notify();
@@ -587,13 +620,25 @@ impl SignalApp {
 
     fn load_contacts(&mut self) {
         let me = self.me();
-        self.contacts = self
+        let mut contacts: Vec<Conversation> = self
             .db
             .all_conversations()
             .unwrap_or_default()
             .into_iter()
-            .filter(|c| c.id.direct_uuid() != me || me.is_none())
+            .filter(|c| me.is_none() || c.id.direct_uuid() != me)
             .collect();
+        // Note to Self is always offered first
+        if let Some(me) = me {
+            let id = ConversationId::Direct(me);
+            let note = self
+                .db
+                .conversation(&id)
+                .ok()
+                .flatten()
+                .unwrap_or_else(|| Conversation::new(id, ""));
+            contacts.insert(0, self.normalize(note));
+        }
+        self.contacts = contacts;
     }
 
     /// Contacts matching the search query, for the new-chat picker.
@@ -634,6 +679,19 @@ impl SignalApp {
             return;
         };
         let body = self.composer.read(cx).value().to_string();
+        if let Some(target) = self.editing.take() {
+            if !body.trim().is_empty() && body.trim() != target.body.trim() {
+                self.commands.send(BackendCommand::Edit {
+                    conversation,
+                    target_sent_at: target.sent_at,
+                    body: body.trim().to_string(),
+                });
+            }
+            self.composer
+                .update(cx, |c, cx| c.set_value("", window, cx));
+            cx.notify();
+            return;
+        }
         if body.trim().is_empty() && self.pending_attachments.is_empty() {
             return;
         }
@@ -662,6 +720,9 @@ impl SignalApp {
             return;
         };
         let empty = self.composer.read(cx).value().trim().is_empty();
+        if self.is_note_to_self(&conversation) {
+            return; // nobody to show a typing indicator to
+        }
         if empty {
             self.stop_typing();
             return;
@@ -717,6 +778,31 @@ impl SignalApp {
     pub fn reply_to(&mut self, message_id: i64, window: &mut Window, cx: &mut Context<Self>) {
         self.replying_to = self.state.message(message_id).cloned();
         self.composer.read(cx).focus_handle(cx).focus(window, cx);
+        cx.notify();
+    }
+
+    /// Puts the composer in edit mode for one of our own recent messages.
+    pub fn start_edit(&mut self, message_id: i64, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(msg) = self.state.message(message_id).cloned() else {
+            return;
+        };
+        if !msg.editable(signal_core::now_millis()) {
+            return;
+        }
+        self.replying_to = None;
+        let body = msg.body.clone();
+        self.editing = Some(msg);
+        self.composer
+            .update(cx, |c, cx| c.set_value(body, window, cx));
+        self.composer.read(cx).focus_handle(cx).focus(window, cx);
+        cx.notify();
+    }
+
+    pub fn cancel_edit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.editing.take().is_some() {
+            self.composer
+                .update(cx, |c, cx| c.set_value("", window, cx));
+        }
         cx.notify();
     }
 

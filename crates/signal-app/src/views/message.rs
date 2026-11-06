@@ -210,6 +210,7 @@ fn render_message(
         let deletable = outgoing && !m.deleted;
         let failed = m.status == MessageStatus::Failed;
         let has_text = !m.body.is_empty();
+        let editable = m.editable(now_millis());
         move |menu, _, _| {
             let a = app.clone();
             let mut menu = menu.item(
@@ -219,6 +220,12 @@ fn render_message(
                         let _ = a.update(cx, |this, cx| this.reply_to(id, window, cx));
                     }),
             );
+            if editable {
+                let a = app.clone();
+                menu = menu.item(PopupMenuItem::new("Edit").on_click(move |_, window, cx| {
+                    let _ = a.update(cx, |this, cx| this.start_edit(id, window, cx));
+                }));
+            }
             if has_text {
                 let a = app.clone();
                 menu = menu.item(PopupMenuItem::new("Copy text").on_click(move |_, _, cx| {

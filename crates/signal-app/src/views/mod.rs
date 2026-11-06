@@ -49,7 +49,9 @@ impl Render for SignalApp {
                     this.select_relative(-1, window, cx)
                 }))
                 .on_action(cx.listener(|this, _: &CloseChat, window, cx| {
-                    if this.replying_to.is_some() {
+                    if this.editing.is_some() {
+                        this.cancel_edit(window, cx);
+                    } else if this.replying_to.is_some() {
                         this.cancel_reply(cx);
                     } else if this.list_mode != ListMode::Chats {
                         this.set_list_mode(ListMode::Chats, window, cx);

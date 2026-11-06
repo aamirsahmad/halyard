@@ -51,6 +51,7 @@ pub fn seed(db: &mut Database, now: Millis) -> signal_core::db::Result<()> {
     let bob = ConversationId::Direct(DEMO_BOB);
     let carol = ConversationId::Direct(DEMO_CAROL);
     let group = ConversationId::Group(DEMO_GROUP);
+    let note = ConversationId::Direct(DEMO_ME);
     let script: Vec<(ConversationId, Uuid, Millis, &str, bool)> = vec![
         (
             bob,
@@ -67,6 +68,20 @@ pub fn seed(db: &mut Database, now: Millis) -> signal_core::db::Result<()> {
             true,
         ),
         (bob, DEMO_BOB, now - 3 * day + 6 * min, "Thanks 🙏", true),
+        (
+            note,
+            DEMO_ME,
+            now - 4 * day,
+            "Groceries: oat milk, coffee beans, basil",
+            true,
+        ),
+        (
+            note,
+            DEMO_ME,
+            now - 4 * day + min,
+            "Book dentist appointment",
+            true,
+        ),
         (
             group,
             DEMO_ALICE,
@@ -374,6 +389,17 @@ fn demo_reaction(
                 target_sent_at: sent_at,
             }]
         }
+        BackendCommand::Edit {
+            conversation,
+            target_sent_at,
+            body,
+        } => vec![Mutation::Edit {
+            conversation,
+            author: DEMO_ME,
+            target_sent_at,
+            body,
+            edited_at: ts,
+        }],
         BackendCommand::MarkRead { conversation } => {
             vec![Mutation::MarkConversationRead { conversation }]
         }
@@ -401,7 +427,7 @@ mod tests {
         let mut db = Database::open_in_memory().unwrap();
         seed(&mut db, 1_000_000_000_000).unwrap();
         let n = db.all_conversations().unwrap().len();
-        assert_eq!(n, 5); // 4 contacts + 1 group
+        assert_eq!(n, 6); // 4 contacts + 1 group + Note to Self
         seed(&mut db, 1_000_000_000_000).unwrap();
         assert_eq!(db.all_conversations().unwrap().len(), n);
         let list = db.conversations().unwrap();

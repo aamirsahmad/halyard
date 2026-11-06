@@ -118,6 +118,10 @@ mod rendering {
             app.open_conversation(ConversationId::Direct(DEMO_ALICE), window, cx);
         });
         let _welcome = capture("welcome", ThemeMode::Light, registered);
+        let _note = capture("note-to-self", ThemeMode::Light, |app, window, cx| {
+            registered(app, window, cx);
+            app.open_conversation(ConversationId::Direct(signal_backend::demo::DEMO_ME), window, cx);
+        });
         let _members = capture("group-members", ThemeMode::Light, |app, window, cx| {
             registered(app, window, cx);
             app.open_conversation(ConversationId::Group(DEMO_GROUP), window, cx);

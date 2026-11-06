@@ -276,7 +276,8 @@ fn new_chat_picker_opens_a_contact_without_history(cx: &mut TestAppContext) {
         assert!(
             window
                 .try_find(eid(format!("contact-{}", ConversationId::Direct(DEMO_ME))))
-                .is_none()
+                .is_some(),
+            "Note to Self is offered"
         );
         window.click(dave.clone(), cx);
     });
@@ -552,4 +553,103 @@ fn clicking_group_header_lists_its_members(cx: &mut TestAppContext) {
             vec!["You", "Alice Johnson", "Bob Smith", "Carol Diaz"]
         );
     });
+}
+
+#[gpui_kit::test]
+fn note_to_self_is_listed_first_in_picker_and_titled(cx: &mut TestAppContext) {
+    let h = setup(cx, true);
+    let note = ConversationId::Direct(DEMO_ME);
+    // the seeded note conversation shows up in the chat list with its title
+    cx.update(|cx| {
+        let app = h.app.read(cx);
+        let conv = app
+            .state()
+            .conversation(&note)
+            .expect("note to self listed");
+        assert_eq!(conv.title, "Note to Self");
+    });
+    with_window(cx, &h, |window, cx| window.click("new-chat", cx));
+    cx.run_until_parked();
+    cx.update(|cx| {
+        let app = h.app.read(cx);
+        let first = app.filtered_contacts()[0];
+        assert_eq!(first.id, note);
+        assert_eq!(first.title, "Note to Self");
+    });
+    with_window(cx, &h, |window, cx| {
+        window.click(eid(format!("contact-{note}")), cx)
+    });
+    cx.run_until_parked();
+    h.sink.take();
+    with_window(cx, &h, |window, cx| {
+        window.input("remember the milk", cx);
+        window.press("enter", cx);
+    });
+    cx.run_until_parked();
+    let cmds = h.sink.take();
+    assert!(
+        !cmds
+            .iter()
+            .any(|c| matches!(c, BackendCommand::Typing { .. })),
+        "no typing indicators to yourself: {cmds:?}"
+    );
+    assert!(cmds.iter().any(|c| matches!(
+        c,
+        BackendCommand::SendText { conversation, body, .. } if *conversation == note && body == "remember the milk"
+    )));
+}
+
+#[gpui_kit::test]
+fn editing_an_own_message_sends_an_edit(cx: &mut TestAppContext) {
+    let h = setup(cx, true);
+    let app = h.app.clone();
+    // Alice's chat has one outgoing message from 18 minutes ago
+    with_window(cx, &h, |window, cx| {
+        app.update(cx, |app, cx| app.open_conversation(alice(), window, cx))
+    });
+    let (own_id, own_sent_at, incoming_id) = cx.update(|cx| {
+        let msgs = h.app.read(cx).state().messages().to_vec();
+        let own = msgs.iter().find(|m| m.outgoing).unwrap();
+        let other = msgs.iter().find(|m| !m.outgoing).unwrap();
+        (own.id, own.sent_at, other.id)
+    });
+    // incoming messages can't be edited
+    with_window(cx, &h, |window, cx| {
+        app.update(cx, |app, cx| app.start_edit(incoming_id, window, cx))
+    });
+    cx.update(|cx| assert!(h.app.read(cx).editing().is_none()));
+
+    with_window(cx, &h, |window, cx| {
+        app.update(cx, |app, cx| app.start_edit(own_id, window, cx))
+    });
+    cx.run_until_parked();
+    with_window(cx, &h, |window, _| {
+        assert!(window.try_find("edit-banner").is_some())
+    });
+    cx.update(|cx| {
+        let text = h.app.read(cx).composer().read(cx).value().to_string();
+        assert!(text.starts_with("Absolutely"), "composer prefilled: {text}");
+    });
+    h.sink.take();
+    with_window(cx, &h, |window, cx| {
+        window.press("secondary-a", cx);
+        window.input("Make it 11am instead", cx);
+        window.press("enter", cx);
+    });
+    cx.run_until_parked();
+    let edits: Vec<_> = h
+        .sink
+        .take()
+        .into_iter()
+        .filter(|c| matches!(c, BackendCommand::Edit { .. }))
+        .collect();
+    assert_eq!(
+        edits,
+        vec![BackendCommand::Edit {
+            conversation: alice(),
+            target_sent_at: own_sent_at,
+            body: "Make it 11am instead".into()
+        }]
+    );
+    cx.update(|cx| assert!(h.app.read(cx).editing().is_none()));
 }

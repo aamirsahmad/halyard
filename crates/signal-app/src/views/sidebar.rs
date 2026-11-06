@@ -327,6 +327,7 @@ impl SignalApp {
             )
             .child(
                 Avatar::new(id.color_seed(), conv.title.clone())
+                    .note_to_self(self.is_note_to_self(&id))
                     .group(id.is_group())
                     .size(px(48.)),
             )
@@ -453,6 +454,7 @@ impl SignalApp {
             )
             .child(
                 Avatar::new(conv_id.color_seed(), title.clone())
+                    .note_to_self(self.is_note_to_self(&conv_id))
                     .group(conv_id.is_group())
                     .size(px(36.)),
             )
@@ -524,6 +526,7 @@ impl SignalApp {
                     }))
                     .child(
                         Avatar::new(id.color_seed(), c.title.clone())
+                            .note_to_self(self.is_note_to_self(&id))
                             .group(id.is_group())
                             .size(px(36.)),
                     )

@@ -138,6 +138,18 @@ impl Message {
         }
     }
 
+    /// Signal only allows editing your own messages for 24 hours.
+    pub const EDIT_WINDOW_MS: Millis = 24 * 60 * 60 * 1000;
+
+    /// Whether the user may edit this message at `now`.
+    pub fn editable(&self, now: Millis) -> bool {
+        self.outgoing
+            && !self.deleted
+            && !self.body.trim().is_empty()
+            && self.status != MessageStatus::Failed
+            && now - self.sent_at < Self::EDIT_WINDOW_MS
+    }
+
     /// Reactions grouped by emoji, in order of first appearance, with counts.
     pub fn reaction_summary(&self) -> Vec<(String, usize)> {
         let mut out: Vec<(String, usize)> = Vec::new();
@@ -299,6 +311,24 @@ mod tests {
         let mut m = msg("secret", vec![]);
         m.deleted = true;
         assert_eq!(m.preview(), "This message was deleted.");
+    }
+
+    #[test]
+    fn edit_window() {
+        let mut m = msg("hi", vec![]);
+        assert!(!m.editable(2), "incoming messages can't be edited");
+        m.outgoing = true;
+        m.status = Sent;
+        assert!(m.editable(2));
+        assert!(!m.editable(1 + Message::EDIT_WINDOW_MS));
+        m.body = " ".into();
+        assert!(
+            !m.editable(2),
+            "attachment-only messages have no text to edit"
+        );
+        m.body = "x".into();
+        m.deleted = true;
+        assert!(!m.editable(2));
     }
 
     #[test]

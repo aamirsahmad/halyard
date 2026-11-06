@@ -16,6 +16,7 @@ pub struct Avatar {
     name: SharedString,
     size: Pixels,
     group: bool,
+    note: bool,
 }
 
 impl Avatar {
@@ -25,11 +26,18 @@ impl Avatar {
             name: name.into(),
             size: px(48.),
             group: false,
+            note: false,
         }
     }
 
     pub fn size(mut self, size: Pixels) -> Self {
         self.size = size;
+        self
+    }
+
+    /// Signal's "Note to Self" avatar (accent circle with a note icon).
+    pub fn note_to_self(mut self, note: bool) -> Self {
+        self.note = note;
         self
     }
 
@@ -41,7 +49,12 @@ impl Avatar {
 
 impl RenderOnce for Avatar {
     fn render(self, _: &mut Window, _: &mut App) -> impl IntoElement {
-        let color = avatar::color_for(&self.seed);
+        // Note to Self uses a fixed blue, like Signal
+        let color = if self.note {
+            avatar::AVATAR_COLORS[1]
+        } else {
+            avatar::color_for(&self.seed)
+        };
         let size = self.size;
         let base = div()
             .flex()
@@ -53,6 +66,13 @@ impl RenderOnce for Avatar {
             .bg(hex(color.bg))
             .text_color(hex(color.fg))
             .overflow_hidden();
+        if self.note {
+            return base.child(
+                Icon::new(Icons::NotebookPen)
+                    .size(size * 0.5)
+                    .text_color(hex(color.fg)),
+            );
+        }
         match (self.group, avatar::initials(&self.name)) {
             (false, Some(initials)) => base
                 .text_size(size * 0.4)

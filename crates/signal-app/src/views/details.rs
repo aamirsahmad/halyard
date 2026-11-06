@@ -31,6 +31,7 @@ pub fn details_dialog(
         .pb_3()
         .child(
             Avatar::new(id.color_seed(), title.to_string())
+                .note_to_self(me.is_some_and(|me| id == ConversationId::Direct(me)))
                 .group(id.is_group())
                 .size(px(72.)),
         )
