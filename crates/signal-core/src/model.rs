@@ -118,6 +118,9 @@ pub enum RangeKind {
     Mention(Uuid),
 }
 
+/// Quote text used for replies to stories.
+pub const STORY_REPLY_QUOTE: &str = "Story";
+
 /// Placeholder character Signal puts in the body where a mention goes.
 pub const MENTION_PLACEHOLDER: char = '\u{FFFC}';
 

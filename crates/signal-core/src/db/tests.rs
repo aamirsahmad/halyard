@@ -917,3 +917,23 @@ fn stories_insert_view_expire() {
     assert_eq!(left.len(), 1);
     assert!(left[0].viewed);
 }
+
+#[test]
+fn synced_contacts_are_never_message_requests() {
+    let mut db = db();
+    let ch = db.apply(incoming(alice(), ALICE, 1, "hi")).unwrap();
+    assert!(!ch.conversations[0].accepted);
+    // the contact sync lists Alice (without a name): her chat is accepted
+    let ch = db
+        .apply(Mutation::ContactsSynced {
+            uuids: vec![ALICE, BOB],
+        })
+        .unwrap();
+    assert_eq!(ch.conversations.len(), 1);
+    assert!(ch.conversations[0].accepted);
+    // and a first message from Bob isn't a request either
+    let ch = db
+        .apply(incoming(ConversationId::Direct(BOB), BOB, 2, "yo"))
+        .unwrap();
+    assert!(ch.conversations[0].accepted);
+}

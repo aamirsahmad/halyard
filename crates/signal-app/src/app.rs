@@ -160,6 +160,7 @@ pub struct SignalApp {
     pub(crate) attachments: Rc<crate::attachments::AttachmentAccess>,
     pub(crate) audio: Rc<crate::audio::AudioPlayer>,
     pub(crate) stories: Vec<signal_core::Story>,
+    pub(crate) story_reply: Entity<InputState>,
     audio_was_active: bool,
     pub(crate) composer_emoji: Entity<crate::views::emoji_picker::EmojiPicker>,
     pub(crate) reaction_picker: Entity<crate::views::emoji_picker::EmojiPicker>,
@@ -178,6 +179,7 @@ impl SignalApp {
     ) -> Self {
         let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search"));
         let conv_search = cx.new(|cx| InputState::new(window, cx).placeholder("Search in chat"));
+        let story_reply = cx.new(|cx| InputState::new(window, cx).placeholder("Reply…"));
         let composer = cx.new(|cx| {
             TextareaState::new(window, cx)
                 .auto_grow(1, 8)
@@ -318,6 +320,7 @@ impl SignalApp {
             attachments: Rc::default(),
             audio: Rc::default(),
             stories: Vec::new(),
+            story_reply,
             audio_was_active: false,
             composer_emoji,
             reaction_picker,

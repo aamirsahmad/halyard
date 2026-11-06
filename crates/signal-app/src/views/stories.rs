@@ -171,6 +171,8 @@ impl SignalApp {
         let name = self.display_name(&author);
         let app = cx.entity().downgrade();
         let access = self.attachments.clone();
+        let reply_input = self.story_reply.clone();
+        reply_input.update(cx, |s, cx| s.set_value("", window, cx));
         window.open_dialog(cx, move |dialog, _, _| {
             let ix = index.get().min(stories.len() - 1);
             let story = &stories[ix];
@@ -271,7 +273,83 @@ impl SignalApp {
                         }))
                         .test_support(),
                 )
+                .child({
+                    let sent_at = story.sent_at;
+                    let send = {
+                        let app = app.clone();
+                        let input = reply_input.clone();
+                        move |body: Option<String>, window: &mut Window, cx: &mut gpui_kit::App| {
+                            let body =
+                                body.unwrap_or_else(|| input.read(cx).value().trim().to_string());
+                            if body.is_empty() {
+                                return;
+                            }
+                            input.update(cx, |s, cx| s.set_value("", window, cx));
+                            let _ = app.update(cx, |this, cx| {
+                                this.reply_to_story(author, sent_at, body, window, cx)
+                            });
+                        }
+                    };
+                    let send = Rc::new(send);
+                    div()
+                        .id("story-reply")
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .pt_3()
+                        .children(["❤️", "😂", "😮"].map(|emoji| {
+                            let send = send.clone();
+                            div()
+                                .id(ElementId::Name(format!("story-react-{emoji}").into()))
+                                .text_size(rem_px(20.))
+                                .cursor_pointer()
+                                .child(emoji)
+                                .on_click(move |_, window, cx| {
+                                    send(Some(emoji.to_string()), window, cx)
+                                })
+                                .test_support()
+                        }))
+                        .child(
+                            div().flex_1().child(
+                                gpui_kit::component::input::Input::new(&reply_input)
+                                    .id("story-reply-input")
+                                    .small(),
+                            ),
+                        )
+                        .child({
+                            let send = send.clone();
+                            Button::new("story-reply-send")
+                                .primary()
+                                .small()
+                                .label("Reply")
+                                .on_click(move |_, window, cx| send(None, window, cx))
+                        })
+                        .test_support()
+                })
         });
+    }
+
+    pub fn reply_to_story(
+        &mut self,
+        author: Uuid,
+        story_sent_at: i64,
+        body: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.commands
+            .send(signal_core::BackendCommand::ReplyToStory {
+                author,
+                story_sent_at,
+                body,
+            });
+        window.push_notification(
+            gpui_kit::component::notification::Notification::success(format!(
+                "Reply sent to {}",
+                self.display_name(&author)
+            )),
+            cx,
+        );
     }
 
     pub fn mark_story_viewed(&mut self, id: i64, cx: &mut Context<Self>) {

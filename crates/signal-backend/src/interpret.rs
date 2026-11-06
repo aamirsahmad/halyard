@@ -101,6 +101,30 @@ fn data_message(
     }
     let sent_at = dm.timestamp.map(|t| t as Millis).unwrap_or(fallback_ts);
 
+    // replies and reactions to a story arrive as data messages with a story context
+    if let Some(sc) = &dm.story_context
+        && let Some(story_author) =
+            parse_aci(sc.author_aci.as_deref(), sc.author_aci_binary.as_deref())
+    {
+        let body = dm
+            .reaction
+            .as_ref()
+            .and_then(|r| r.emoji.clone())
+            .or_else(|| dm.body.clone())
+            .unwrap_or_default();
+        if !body.trim().is_empty() {
+            let mut m = NewMessage::text(conversation, author, sent_at, outgoing, body);
+            m.received_at = ctx.received_at;
+            m.quote = Some(Quote {
+                author: story_author,
+                sent_at: sc.sent_timestamp.unwrap_or_default() as Millis,
+                text: signal_core::STORY_REPLY_QUOTE.into(),
+            });
+            out.push(Output::Mutation(Mutation::InsertMessage(m)));
+        }
+        return;
+    }
+
     if let Some(r) = &dm.reaction {
         let target = parse_aci(
             r.target_author_aci.as_deref(),
@@ -806,6 +830,31 @@ mod tests {
             panic!()
         };
         assert!(m.body.contains("can't be displayed"));
+    }
+
+    #[test]
+    fn story_replies_and_reactions() {
+        let mut dm = text(10, "love this!");
+        dm.story_context = Some(data_message::StoryContext {
+            author_aci: Some(ME.to_string()),
+            sent_timestamp: Some(5),
+            ..Default::default()
+        });
+        let Mutation::InsertMessage(m) = only_mutation(run(&content(ALICE, dm.clone()))) else {
+            panic!()
+        };
+        assert_eq!(m.body, "love this!");
+        let q = m.quote.unwrap();
+        assert_eq!((q.author, q.sent_at, q.text.as_str()), (ME, 5, "Story"));
+        dm.body = None;
+        dm.reaction = Some(data_message::Reaction {
+            emoji: Some("🔥".into()),
+            ..Default::default()
+        });
+        let Mutation::InsertMessage(m) = only_mutation(run(&content(ALICE, dm))) else {
+            panic!()
+        };
+        assert_eq!(m.body, "🔥");
     }
 
     #[test]

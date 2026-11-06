@@ -55,6 +55,12 @@ pub enum BackendCommand {
         conversation: ConversationId,
         secs: Option<u32>,
     },
+    /// Reply privately to a contact's story (text or an emoji reaction).
+    ReplyToStory {
+        author: Uuid,
+        story_sent_at: Millis,
+        body: String,
+    },
     /// Forward a message's text and attachments to other conversations.
     Forward {
         targets: Vec<ConversationId>,
@@ -255,6 +261,11 @@ pub enum Mutation {
     MarkStoryViewed {
         id: i64,
     },
+    /// These accounts came from the phone's contact sync: never show their
+    /// chats as message requests.
+    ContactsSynced {
+        uuids: Vec<Uuid>,
+    },
     StoryAttachmentDownloaded {
         id: i64,
         local_path: String,
@@ -345,6 +356,7 @@ impl Mutation {
             | Mutation::ExpireDue { .. }
             | Mutation::InsertStory(_)
             | Mutation::MarkStoryViewed { .. }
+            | Mutation::ContactsSynced { .. }
             | Mutation::StoryAttachmentDownloaded { .. }
             | Mutation::DeleteForMe { .. } => None,
         }

@@ -393,6 +393,19 @@ fn demo_reaction(
                 demo_reaction(cmd, ts, db, later, delay, events)
             })
             .collect(),
+        BackendCommand::ReplyToStory {
+            author,
+            story_sent_at,
+            body,
+        } => {
+            let mut m = NewMessage::text(ConversationId::Direct(author), DEMO_ME, ts, true, body);
+            m.quote = Some(signal_core::Quote {
+                author,
+                sent_at: story_sent_at,
+                text: signal_core::STORY_REPLY_QUOTE.into(),
+            });
+            vec![Mutation::InsertMessage(m)]
+        }
         BackendCommand::SetExpireTimer { conversation, secs } => vec![Mutation::SetExpireTimer {
             conversation,
             secs,

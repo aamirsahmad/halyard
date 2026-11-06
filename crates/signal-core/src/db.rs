@@ -31,7 +31,7 @@ pub enum DbError {
 
 pub type Result<T> = std::result::Result<T, DbError>;
 
-pub const SCHEMA_VERSION: i64 = 4;
+pub const SCHEMA_VERSION: i64 = 5;
 
 const MIGRATIONS: &[&str] = &[
     // v1
@@ -108,6 +108,11 @@ const MIGRATIONS: &[&str] = &[
         viewed INTEGER NOT NULL DEFAULT 0,
         UNIQUE(author, sent_at)
     );
+    "#,
+    // v5: contacts from the phone's contact sync
+    r#"
+    ALTER TABLE contacts ADD COLUMN synced INTEGER NOT NULL DEFAULT 0;
+    UPDATE contacts SET synced = 1 WHERE name IS NOT NULL;
     "#,
 ];
 
@@ -1009,6 +1014,23 @@ impl Writer<'_> {
                 )?;
                 changes.stories_changed = n == 1;
             }
+            Mutation::ContactsSynced { uuids } => {
+                for u in uuids {
+                    self.conn.execute(
+                        "INSERT INTO contacts (uuid, synced) VALUES (?1, 1) \
+                         ON CONFLICT(uuid) DO UPDATE SET synced = 1",
+                        [u.to_string()],
+                    )?;
+                    let id = ConversationId::Direct(u);
+                    let n = self.conn.execute(
+                        "UPDATE conversations SET accepted = 1 WHERE id = ?1 AND accepted = 0",
+                        [id.to_string()],
+                    )?;
+                    if n > 0 {
+                        changes.conversations.extend(self.conversation(&id)?);
+                    }
+                }
+            }
             Mutation::MarkStoryViewed { id } => {
                 let n = self.conn.execute(
                     "UPDATE stories SET viewed = 1 WHERE id = ?1 AND viewed = 0",
@@ -1164,7 +1186,7 @@ impl Writer<'_> {
         Ok(self
             .conn
             .query_row(
-                "SELECT 1 FROM contacts WHERE uuid = ?1 AND name IS NOT NULL",
+                "SELECT 1 FROM contacts WHERE uuid = ?1 AND (synced = 1 OR name IS NOT NULL)",
                 [uuid.to_string()],
                 |_| Ok(()),
             )

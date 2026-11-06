@@ -347,6 +347,14 @@ impl Worker {
             }
             Err(e) => tracing::warn!(%e, "failed to read contacts"),
         }
+        let synced: Vec<Uuid> = mutations
+            .iter()
+            .filter_map(|m| match m {
+                Mutation::UpsertContact(c) => Some(c.uuid),
+                _ => None,
+            })
+            .collect();
+        mutations.push(Mutation::ContactsSynced { uuids: synced });
         match self.store.groups().await {
             Ok(iter) => {
                 for (key, g) in iter.flatten() {
@@ -673,6 +681,47 @@ impl Worker {
                     ..Default::default()
                 };
                 self.spawn_send(conversation, dm, at, false);
+            }
+            BackendCommand::ReplyToStory {
+                author,
+                story_sent_at,
+                body,
+            } => {
+                let Some(me) = self.me else { return };
+                let conversation = ConversationId::Direct(author);
+                let at = self.next_ts();
+                let mut m = NewMessage::text(conversation, me, at, true, body.clone());
+                m.status = MessageStatus::Sending;
+                m.quote = Some(Quote {
+                    author,
+                    sent_at: story_sent_at,
+                    text: signal_core::STORY_REPLY_QUOTE.into(),
+                });
+                let ch = self.apply(Mutation::InsertMessage(m));
+                self.emit_changes(ch);
+                let Some(manager) = self.manager.clone() else {
+                    return;
+                };
+                let tx = self.internal_tx.clone();
+                let dm = DataMessage {
+                    body: Some(body),
+                    timestamp: Some(at as u64),
+                    story_context: Some(data_message::StoryContext {
+                        author_aci: Some(author.to_string()),
+                        sent_timestamp: Some(story_sent_at as u64),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                };
+                spawn_local(async move {
+                    let result = deliver(manager, conversation, dm, at).await;
+                    let _ = tx.send(Internal::SendResult {
+                        conversation,
+                        sent_at: at,
+                        ok: result.is_ok(),
+                        error: result.err(),
+                    });
+                });
             }
             BackendCommand::Forward {
                 targets,

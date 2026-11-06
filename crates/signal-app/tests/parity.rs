@@ -616,3 +616,29 @@ fn zoom_shortcuts_scale_the_ui(cx: &mut TestAppContext) {
     with_app(cx, &h, |a, w, cx| a.zoom(0, w, cx));
     assert_eq!(rem(cx), px(16.));
 }
+
+#[gpui_kit::test]
+fn reply_to_a_story(cx: &mut TestAppContext) {
+    let h = setup(cx);
+    with_app(cx, &h, |a, w, cx| a.open_story_viewer(DEMO_ALICE, w, cx));
+    h.sink.take();
+    with_window(cx, &h, |w, cx| w.click(eid("story-react-❤️"), cx));
+    with_window(cx, &h, |w, cx| {
+        w.click("story-reply-input", cx);
+        w.input("See you there!", cx);
+        w.click("story-reply-send", cx);
+    });
+    let replies: Vec<String> = h
+        .sink
+        .take()
+        .into_iter()
+        .filter_map(|c| match c {
+            BackendCommand::ReplyToStory { author, body, .. } if author == DEMO_ALICE => Some(body),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        replies,
+        vec!["❤️".to_string(), "See you there!".to_string()]
+    );
+}
