@@ -1,0 +1,25 @@
+[package]
+name = "signal-app"
+description = "Signal desktop client built with GPUI"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "signal-gpui"
+path = "src/main.rs"
+
+[dependencies]
+signal-core.workspace = true
+signal-backend.workspace = true
+gpui-kit.workspace = true
+anyhow.workspace = true
+chrono.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+directories.workspace = true
+qrcode.workspace = true
+
+[dev-dependencies]
+gpui-kit = { workspace = true, features = ["test-support"] }
+tempfile.workspace = true

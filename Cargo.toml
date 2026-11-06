@@ -1,0 +1,47 @@
+[workspace]
+members = ["crates/signal-core", "crates/signal-backend", "crates/signal-app"]
+default-members = ["crates/signal-app"]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "AGPL-3.0-only"
+rust-version = "1.90"
+repository = "https://github.com/aamir/signal-gpui"
+
+[workspace.dependencies]
+signal-core = { path = "crates/signal-core" }
+signal-backend = { path = "crates/signal-backend" }
+
+gpui-kit = "0.9.0"
+presage = { git = "https://github.com/whisperfish/presage", rev = "4b81740610c301cbd54d95f4dbd4cadd692af95e" }
+presage-store-sqlite = { git = "https://github.com/whisperfish/presage", rev = "4b81740610c301cbd54d95f4dbd4cadd692af95e" }
+
+anyhow = "1"
+thiserror = "2"
+chrono = { version = "0.4", features = ["serde"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tokio = { version = "1.48", features = ["rt", "sync", "time", "macros"] }
+futures = "0.3"
+uuid = { version = "1", features = ["v4", "serde"] }
+rusqlite = { version = "0.38", features = ["bundled-sqlcipher"] }
+directories = "6"
+tempfile = "3"
+hex = "0.4"
+qrcode = { version = "0.14", default-features = false }
+
+# unoptimized ML-KEM can stack-overflow when decrypting PQXDH prekey messages
+[profile.dev.package.libcrux-ml-kem]
+opt-level = 3
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "debuginfo"
+
+[patch.crates-io]
+libsqlite3-sys = { git = "https://github.com/whisperfish/rusqlite", rev = "2a42b3354c9194700d08aa070f70a131a470e7dc" }

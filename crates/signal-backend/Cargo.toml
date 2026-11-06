@@ -1,0 +1,22 @@
+[package]
+name = "signal-backend"
+description = "libsignal/presage powered Signal service backend running on a dedicated thread"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+signal-core.workspace = true
+presage.workspace = true
+presage-store-sqlite.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+chrono.workspace = true
+tracing.workspace = true
+tokio.workspace = true
+futures.workspace = true
+uuid.workspace = true
+hex.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
