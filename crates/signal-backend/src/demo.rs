@@ -6,8 +6,8 @@ use std::time::Duration;
 
 use signal_core::{
     AccountInfo, AccountState, BackendCommand, BackendEvent, ConnectionState, Contact,
-    ConversationId, Database, GroupKey, MessageStatus, Millis, Mutation, NewMessage, ReceiptKind,
-    now_millis,
+    ConversationId, Database, GroupKey, MessageKind, MessageStatus, Millis, Mutation, NewMessage,
+    ReceiptKind, now_millis,
 };
 use tokio::sync::mpsc;
 use uuid::Uuid;
@@ -172,6 +172,8 @@ pub fn seed(db: &mut Database, now: Millis) -> signal_core::db::Result<()> {
             },
             read,
             expires_in_secs: None,
+            kind: MessageKind::Normal,
+            body_ranges: vec![],
         }))?;
     }
     db.apply(Mutation::React {
@@ -221,8 +223,14 @@ pub fn spawn_demo(
             events(BackendEvent::Connection(ConnectionState::Online));
             let (later_tx, mut later_rx) = mpsc::unbounded_channel::<Mutation>();
             let mut last_ts = 0;
+            let mut sweep = tokio::time::interval(Duration::from_secs(1));
             loop {
                 tokio::select! {
+                    _ = sweep.tick() => {
+                        if let Ok(ch) = db.apply(Mutation::ExpireDue { now: now_millis() }) {
+                            ch.into_events().into_iter().for_each(|e| events(e));
+                        }
+                    }
                     cmd = rx.recv() => {
                         let Some(cmd) = cmd else { break };
                         if cmd == BackendCommand::Shutdown { break; }
@@ -268,12 +276,40 @@ fn demo_reaction(
         });
     };
     match cmd {
+        BackendCommand::Forward {
+            targets,
+            body,
+            attachments,
+        } => targets
+            .into_iter()
+            .flat_map(|conversation| {
+                let cmd = BackendCommand::SendText {
+                    conversation,
+                    body: body.clone(),
+                    quote: None,
+                    attachments: attachments.clone(),
+                };
+                demo_reaction(cmd, ts, db, later, delay, events)
+            })
+            .collect(),
+        BackendCommand::SetExpireTimer { conversation, secs } => vec![Mutation::SetExpireTimer {
+            conversation,
+            secs,
+            author: DEMO_ME,
+            outgoing: true,
+            at: ts,
+        }],
         BackendCommand::SendText {
             conversation,
             body,
             quote,
             attachments,
         } => {
+            let timer = db
+                .conversation(&conversation)
+                .ok()
+                .flatten()
+                .and_then(|c| c.expire_timer);
             let atts = attachments
                 .iter()
                 .map(|p| signal_core::Attachment {
@@ -335,7 +371,9 @@ fn demo_reaction(
                     quote: None,
                     status: MessageStatus::Received,
                     read: false,
-                    expires_in_secs: None,
+                    expires_in_secs: timer,
+                    kind: MessageKind::Normal,
+                    body_ranges: vec![],
                 }),
             );
             vec![Mutation::InsertMessage(NewMessage {
@@ -349,7 +387,9 @@ fn demo_reaction(
                 quote,
                 status: MessageStatus::Sending,
                 read: true,
-                expires_in_secs: None,
+                expires_in_secs: timer,
+                kind: MessageKind::Normal,
+                body_ranges: vec![],
             })]
         }
         BackendCommand::Resend {

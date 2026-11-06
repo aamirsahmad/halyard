@@ -270,6 +270,21 @@ impl ChatState {
                 }
                 fx.timeline_changed = self.selected == Some(conversation);
             }
+            BackendEvent::MessageRemoved { conversation, id } => {
+                if self.selected == Some(conversation) {
+                    let before = self.messages.len();
+                    self.messages.retain(|m| m.id != id);
+                    fx.timeline_changed = self.messages.len() != before;
+                }
+            }
+            BackendEvent::ConversationRemoved(id) => {
+                self.conversations.retain(|c| c.id != id);
+                self.typing.remove(&id);
+                if self.selected == Some(id) {
+                    self.close();
+                    fx.timeline_changed = true;
+                }
+            }
             BackendEvent::ContactsChanged => {}
             BackendEvent::Error(e) => self.last_error = Some(e),
         }
@@ -281,7 +296,7 @@ impl ChatState {
 mod tests {
     use super::*;
     use crate::ids::GroupKey;
-    use crate::model::{AccountInfo, MessageStatus};
+    use crate::model::{AccountInfo, MessageKind, MessageStatus};
 
     const ALICE: Uuid = Uuid::from_u128(1);
     const BOB: Uuid = Uuid::from_u128(2);
@@ -309,6 +324,10 @@ mod tests {
             edited_at: None,
             deleted: false,
             expires_in_secs: None,
+            expires_at: None,
+            kind: MessageKind::Normal,
+            body_ranges: vec![],
+            edit_history: vec![],
         }
     }
 
@@ -495,6 +514,38 @@ mod tests {
             name,
         );
         assert!(s.typing_in(&a()).is_empty());
+    }
+
+    #[test]
+    fn removals() {
+        let mut s = ChatState::new();
+        s.set_conversations(vec![conv(a(), "Alice", 1), conv(b(), "Bob", 2)]);
+        s.open(
+            conv(a(), "Alice", 1),
+            vec![msg(1, a(), ALICE, 1), msg(2, a(), ALICE, 2)],
+            false,
+        );
+        let fx = s.apply(
+            BackendEvent::MessageRemoved {
+                conversation: a(),
+                id: 1,
+            },
+            name,
+        );
+        assert!(fx.timeline_changed);
+        assert_eq!(s.messages().len(), 1);
+        let fx = s.apply(
+            BackendEvent::MessageRemoved {
+                conversation: b(),
+                id: 9,
+            },
+            name,
+        );
+        assert!(!fx.timeline_changed);
+        let fx = s.apply(BackendEvent::ConversationRemoved(a()), name);
+        assert!(fx.timeline_changed);
+        assert!(s.selected().is_none());
+        assert_eq!(s.conversations().len(), 1);
     }
 
     #[test]

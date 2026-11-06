@@ -7,7 +7,8 @@ use uuid::Uuid;
 
 use crate::ids::{ConversationId, GroupKey};
 use crate::model::{
-    AccountInfo, Attachment, Contact, Conversation, Message, MessageStatus, Millis, Quote,
+    AccountInfo, Attachment, BodyRange, Contact, Conversation, Message, MessageKind, MessageStatus,
+    Millis, Quote,
 };
 
 /// Commands sent from the UI to the backend.
@@ -48,6 +49,17 @@ pub enum BackendCommand {
     /// The user has seen all messages in this conversation.
     MarkRead {
         conversation: ConversationId,
+    },
+    /// Change the disappearing-message timer (`None` turns it off).
+    SetExpireTimer {
+        conversation: ConversationId,
+        secs: Option<u32>,
+    },
+    /// Forward a message's text and attachments to other conversations.
+    Forward {
+        targets: Vec<ConversationId>,
+        body: String,
+        attachments: Vec<PathBuf>,
     },
     Typing {
         conversation: ConversationId,
@@ -92,7 +104,14 @@ pub enum BackendEvent {
     Account(AccountState),
     Connection(ConnectionState),
     ConversationUpdated(Conversation),
+    /// A conversation was deleted locally.
+    ConversationRemoved(ConversationId),
     MessageUpserted(Message),
+    /// A message was removed (deleted for me, or disappeared).
+    MessageRemoved {
+        conversation: ConversationId,
+        id: i64,
+    },
     Typing {
         conversation: ConversationId,
         who: Uuid,
@@ -133,6 +152,39 @@ pub struct NewMessage {
     pub status: MessageStatus,
     pub read: bool,
     pub expires_in_secs: Option<u32>,
+    pub kind: MessageKind,
+    pub body_ranges: Vec<BodyRange>,
+}
+
+impl NewMessage {
+    /// A plain text message; fill in the rest with struct update syntax.
+    pub fn text(
+        conversation: ConversationId,
+        author: Uuid,
+        sent_at: Millis,
+        outgoing: bool,
+        body: impl Into<String>,
+    ) -> Self {
+        Self {
+            conversation,
+            author,
+            sent_at,
+            received_at: sent_at,
+            outgoing,
+            body: body.into(),
+            attachments: Vec::new(),
+            quote: None,
+            status: if outgoing {
+                MessageStatus::Sent
+            } else {
+                MessageStatus::Received
+            },
+            read: outgoing,
+            expires_in_secs: None,
+            kind: MessageKind::Normal,
+            body_ranges: Vec::new(),
+        }
+    }
 }
 
 /// Storage mutations; the backend interprets protocol content into these and
@@ -193,6 +245,45 @@ pub enum Mutation {
         index: usize,
         local_path: String,
     },
+    /// Disappearing-message timer changed by `author` at `at`; records a notice.
+    SetExpireTimer {
+        conversation: ConversationId,
+        secs: Option<u32>,
+        author: Uuid,
+        outgoing: bool,
+        at: Millis,
+    },
+    /// Remove messages whose disappearing timer ran out by `now`.
+    ExpireDue {
+        now: Millis,
+    },
+    /// Start the disappearing timer of read incoming messages (Signal starts
+    /// it when a message is read).
+    StartExpiryTimers {
+        conversation: ConversationId,
+        now: Millis,
+    },
+    DeleteForMe {
+        message_id: i64,
+    },
+    DeleteConversation {
+        conversation: ConversationId,
+    },
+    SetMuted {
+        conversation: ConversationId,
+        until: Option<Millis>,
+    },
+    SetMarkedUnread {
+        conversation: ConversationId,
+        unread: bool,
+    },
+    SetBlocked {
+        conversation: ConversationId,
+        blocked: bool,
+    },
+    Accept {
+        conversation: ConversationId,
+    },
 }
 
 impl Mutation {
@@ -204,12 +295,21 @@ impl Mutation {
             | Mutation::DeleteForEveryone { conversation, .. }
             | Mutation::React { conversation, .. }
             | Mutation::SendStatus { conversation, .. }
-            | Mutation::MarkConversationRead { conversation } => Some(*conversation),
+            | Mutation::MarkConversationRead { conversation }
+            | Mutation::SetExpireTimer { conversation, .. }
+            | Mutation::StartExpiryTimers { conversation, .. }
+            | Mutation::DeleteConversation { conversation }
+            | Mutation::SetMuted { conversation, .. }
+            | Mutation::SetMarkedUnread { conversation, .. }
+            | Mutation::SetBlocked { conversation, .. }
+            | Mutation::Accept { conversation } => Some(*conversation),
             Mutation::UpsertGroup { key, .. } => Some(ConversationId::Group(*key)),
             Mutation::UpsertContact(c) => Some(ConversationId::Direct(c.uuid)),
             Mutation::Receipt { .. }
             | Mutation::ReadSync { .. }
-            | Mutation::AttachmentDownloaded { .. } => None,
+            | Mutation::AttachmentDownloaded { .. }
+            | Mutation::ExpireDue { .. }
+            | Mutation::DeleteForMe { .. } => None,
         }
     }
 }
@@ -219,11 +319,18 @@ impl Mutation {
 pub struct Changes {
     pub conversations: Vec<Conversation>,
     pub messages: Vec<Message>,
+    pub removed_messages: Vec<(ConversationId, i64)>,
+    pub removed_conversations: Vec<ConversationId>,
+    /// Local attachment files of removed messages (for the caller to delete).
+    pub removed_files: Vec<String>,
 }
 
 impl Changes {
     pub fn is_empty(&self) -> bool {
-        self.conversations.is_empty() && self.messages.is_empty()
+        self.conversations.is_empty()
+            && self.messages.is_empty()
+            && self.removed_messages.is_empty()
+            && self.removed_conversations.is_empty()
     }
 
     pub fn extend(&mut self, other: Changes) {
@@ -235,14 +342,29 @@ impl Changes {
             self.messages.retain(|x| x.id != m.id);
             self.messages.push(m);
         }
+        for r in other.removed_messages {
+            self.messages.retain(|x| x.id != r.1);
+            self.removed_messages.push(r);
+        }
+        self.removed_files.extend(other.removed_files);
+        for c in other.removed_conversations {
+            self.conversations.retain(|x| x.id != c);
+            self.removed_conversations.push(c);
+        }
     }
 
     pub fn into_events(self) -> Vec<BackendEvent> {
         let mut ev: Vec<BackendEvent> = self
-            .messages
+            .removed_messages
             .into_iter()
-            .map(BackendEvent::MessageUpserted)
+            .map(|(conversation, id)| BackendEvent::MessageRemoved { conversation, id })
             .collect();
+        ev.extend(self.messages.into_iter().map(BackendEvent::MessageUpserted));
+        ev.extend(
+            self.removed_conversations
+                .into_iter()
+                .map(BackendEvent::ConversationRemoved),
+        );
         ev.extend(
             self.conversations
                 .into_iter()

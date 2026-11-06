@@ -10,7 +10,10 @@ use rusqlite::{Connection, OptionalExtension, Row, params};
 use uuid::Uuid;
 
 use crate::ids::ConversationId;
-use crate::model::{Contact, Conversation, Message, MessageStatus, Millis, Reaction};
+use crate::model::{
+    Contact, Conversation, Message, MessageKind, MessageStatus, Millis, Reaction, Revision,
+    now_millis,
+};
 use crate::protocol::{Changes, Mutation, NewMessage};
 
 #[derive(Debug, thiserror::Error)]
@@ -27,7 +30,7 @@ pub enum DbError {
 
 pub type Result<T> = std::result::Result<T, DbError>;
 
-pub const SCHEMA_VERSION: i64 = 1;
+pub const SCHEMA_VERSION: i64 = 2;
 
 const MIGRATIONS: &[&str] = &[
     // v1
@@ -72,6 +75,21 @@ const MIGRATIONS: &[&str] = &[
     CREATE INDEX messages_by_conversation ON messages(conversation_id, sent_at, id);
     CREATE INDEX messages_by_sent_at ON messages(sent_at);
     "#,
+    // v2: mute expiry, mark unread, disappearing messages, blocking, message
+    // requests, notices, formatting and edit history
+    r#"
+    ALTER TABLE conversations ADD COLUMN muted_until INTEGER NOT NULL DEFAULT 0;
+    UPDATE conversations SET muted_until = 9223372036854775807 WHERE muted = 1;
+    ALTER TABLE conversations ADD COLUMN marked_unread INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE conversations ADD COLUMN expire_timer INTEGER;
+    ALTER TABLE conversations ADD COLUMN blocked INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE conversations ADD COLUMN accepted INTEGER NOT NULL DEFAULT 1;
+    ALTER TABLE messages ADD COLUMN expires_at INTEGER;
+    ALTER TABLE messages ADD COLUMN kind TEXT NOT NULL DEFAULT '"normal"';
+    ALTER TABLE messages ADD COLUMN body_ranges TEXT NOT NULL DEFAULT '[]';
+    ALTER TABLE messages ADD COLUMN edit_history TEXT NOT NULL DEFAULT '[]';
+    CREATE INDEX messages_by_expiry ON messages(expires_at) WHERE expires_at IS NOT NULL;
+    "#,
 ];
 
 pub struct Database {
@@ -79,10 +97,12 @@ pub struct Database {
 }
 
 const MESSAGE_COLUMNS: &str = "id, conversation_id, author, sent_at, received_at, outgoing, body, \
-     attachments, quote, reactions, status, read, edited_at, deleted, expires_in";
+     attachments, quote, reactions, status, read, edited_at, deleted, expires_in, expires_at, kind, \
+     body_ranges, edit_history";
 
 const CONVERSATION_COLUMNS: &str = "id, title, last_activity, last_preview, last_preview_outgoing, \
-     unread_count, pinned, archived, muted, draft, members";
+     unread_count, pinned, archived, muted_until, draft, members, marked_unread, expire_timer, \
+     blocked, accepted";
 
 fn bool_col(row: &Row, idx: usize) -> rusqlite::Result<bool> {
     Ok(row.get::<_, i64>(idx)? != 0)
@@ -125,10 +145,15 @@ fn message_from_row(row: &Row) -> rusqlite::Result<Message> {
         edited_at: row.get(12)?,
         deleted: bool_col(row, 13)?,
         expires_in_secs: row.get(14)?,
+        expires_at: row.get(15)?,
+        kind: json_col(row, 16)?,
+        body_ranges: json_col(row, 17)?,
+        edit_history: json_col(row, 18)?,
     })
 }
 
 fn conversation_from_row(row: &Row) -> rusqlite::Result<Conversation> {
+    let muted_until = Some(row.get::<_, i64>(8)?).filter(|t| *t > 0);
     Ok(Conversation {
         id: parse_conv_id(row.get(0)?)?,
         title: row.get(1)?,
@@ -138,9 +163,14 @@ fn conversation_from_row(row: &Row) -> rusqlite::Result<Conversation> {
         unread_count: row.get(5)?,
         pinned: bool_col(row, 6)?,
         archived: bool_col(row, 7)?,
-        muted: bool_col(row, 8)?,
+        muted: muted_until.is_some_and(|until| until > crate::model::now_millis()),
+        muted_until,
         draft: row.get(9)?,
         members: json_col(row, 10)?,
+        marked_unread: bool_col(row, 11)?,
+        expire_timer: row.get::<_, Option<u32>>(12)?.filter(|t| *t > 0),
+        blocked: bool_col(row, 13)?,
+        accepted: bool_col(row, 14)?,
     })
 }
 
@@ -395,8 +425,18 @@ impl Database {
         self.set_flag(id, "archived", archived)
     }
 
+    /// Mutes forever (`true`) or unmutes; see [`Mutation::SetMuted`] for timed mutes.
     pub fn set_muted(&mut self, id: &ConversationId, muted: bool) -> Result<Option<Conversation>> {
-        self.set_flag(id, "muted", muted)
+        let until = if muted { Some(i64::MAX) } else { None };
+        let ch = self.apply(Mutation::SetMuted {
+            conversation: *id,
+            until,
+        })?;
+        Ok(ch
+            .conversations
+            .into_iter()
+            .next()
+            .or(self.conversation(id)?))
     }
 
     fn set_flag(
@@ -605,7 +645,28 @@ impl Writer<'_> {
                 changes.conversations.extend(self.conversation(&id)?);
             }
             Mutation::InsertMessage(m) => {
+                let existed = self.conversation(&m.conversation)?.is_some();
                 self.ensure_conversation(&m.conversation)?;
+                let conv = self.conversation(&m.conversation)?.expect("ensured");
+                if !m.outgoing && conv.blocked {
+                    return Ok(changes); // drop messages from blocked chats
+                }
+                if m.outgoing {
+                    self.set_column(&m.conversation, "accepted", 1)?;
+                } else if !existed
+                    && !m.conversation.is_group()
+                    && !self.is_known_contact(&m.author)?
+                {
+                    // first contact from a stranger: a message request
+                    self.set_column(&m.conversation, "accepted", 0)?;
+                }
+                // a message carrying a different timer updates the chat's timer
+                if m.kind == MessageKind::Normal && m.expires_in_secs != conv.expire_timer {
+                    self.conn.execute(
+                        "UPDATE conversations SET expire_timer = ?2 WHERE id = ?1",
+                        params![m.conversation.to_string(), m.expires_in_secs],
+                    )?;
+                }
                 if let Some(id) = self.insert_message(&m)? {
                     changes.messages.push(self.message(id)?);
                     changes
@@ -623,9 +684,14 @@ impl Writer<'_> {
                 if let Some(msg) = self.message_by_key(&conversation, &author, target_sent_at)?
                     && !msg.deleted
                 {
+                    let mut history = msg.edit_history.clone();
+                    history.push(Revision {
+                        body: msg.body.clone(),
+                        at: msg.edited_at.unwrap_or(msg.sent_at),
+                    });
                     self.conn.execute(
-                        "UPDATE messages SET body = ?2, edited_at = ?3 WHERE id = ?1",
-                        params![msg.id, body, edited_at],
+                        "UPDATE messages SET body = ?2, edited_at = ?3, edit_history = ?4 WHERE id = ?1",
+                        params![msg.id, body, edited_at, serde_json::to_string(&history)?],
                     )?;
                     changes.messages.push(self.message(msg.id)?);
                     changes
@@ -745,6 +811,7 @@ impl Writer<'_> {
                          AND read = 0 AND sent_at <= ?2",
                         params![conv.to_string(), sent_at],
                     )?;
+                    self.start_timers(&conv, now_millis())?;
                     changes.messages.push(self.message(id)?);
                     changes.conversations.push(self.refresh_summary(&conv)?);
                 }
@@ -754,7 +821,16 @@ impl Writer<'_> {
                     "UPDATE messages SET read = 1 WHERE conversation_id = ?1 AND outgoing = 0 AND read = 0",
                     [conversation.to_string()],
                 )?;
+                let timers = self.start_timers(&conversation, now_millis())?;
+                changes.messages.extend(timers);
+                let was_marked = self
+                    .conversation(&conversation)?
+                    .is_some_and(|c| c.marked_unread);
+                if was_marked {
+                    self.set_column(&conversation, "marked_unread", 0)?;
+                }
                 if n > 0
+                    || was_marked
                     || self
                         .conversation(&conversation)?
                         .is_some_and(|c| c.unread_count > 0)
@@ -781,16 +857,195 @@ impl Writer<'_> {
                     changes.messages.push(self.message(message_id)?);
                 }
             }
+            Mutation::SetExpireTimer {
+                conversation,
+                secs,
+                author,
+                outgoing,
+                at,
+            } => {
+                let secs = secs.filter(|s| *s > 0);
+                self.ensure_conversation(&conversation)?;
+                self.conn.execute(
+                    "UPDATE conversations SET expire_timer = ?2 WHERE id = ?1",
+                    params![conversation.to_string(), secs],
+                )?;
+                let mut notice = NewMessage::text(conversation, author, at, outgoing, "");
+                notice.read = true;
+                notice.kind = MessageKind::TimerChanged { secs };
+                if let Some(id) = self.insert_message(&notice)? {
+                    changes.messages.push(self.message(id)?);
+                }
+                changes
+                    .conversations
+                    .push(self.refresh_summary(&conversation)?);
+            }
+            Mutation::StartExpiryTimers { conversation, now } => {
+                let started = self.start_timers(&conversation, now)?;
+                changes.messages.extend(started);
+            }
+            Mutation::ExpireDue { now } => {
+                let mut stmt = self.conn.prepare(
+                    "SELECT id, conversation_id FROM messages WHERE expires_at IS NOT NULL AND expires_at <= ?1",
+                )?;
+                let due: Vec<(i64, String)> = stmt
+                    .query_map([now], |r| Ok((r.get(0)?, r.get(1)?)))?
+                    .collect::<rusqlite::Result<_>>()?;
+                let mut touched = Vec::new();
+                for (id, conv) in due {
+                    let conv = parse_conv_id(conv)?;
+                    changes.removed_files.extend(self.attachment_files(id)?);
+                    self.conn
+                        .execute("DELETE FROM messages WHERE id = ?1", [id])?;
+                    changes.removed_messages.push((conv, id));
+                    if !touched.contains(&conv) {
+                        touched.push(conv);
+                    }
+                }
+                for conv in touched {
+                    changes.conversations.push(self.refresh_summary(&conv)?);
+                }
+            }
+            Mutation::DeleteForMe { message_id } => {
+                if let Ok(msg) = self.message(message_id) {
+                    changes
+                        .removed_files
+                        .extend(self.attachment_files(message_id)?);
+                    self.conn
+                        .execute("DELETE FROM messages WHERE id = ?1", [message_id])?;
+                    changes
+                        .removed_messages
+                        .push((msg.conversation, message_id));
+                    changes
+                        .conversations
+                        .push(self.refresh_summary(&msg.conversation)?);
+                }
+            }
+            Mutation::DeleteConversation { conversation } => {
+                let key = conversation.to_string();
+                let ids: Vec<i64> = self
+                    .conn
+                    .prepare("SELECT id FROM messages WHERE conversation_id = ?1")?
+                    .query_map([&key], |r| r.get(0))?
+                    .collect::<rusqlite::Result<_>>()?;
+                for id in ids {
+                    changes.removed_files.extend(self.attachment_files(id)?);
+                }
+                self.conn
+                    .execute("DELETE FROM messages WHERE conversation_id = ?1", [&key])?;
+                // keep the row (contact/group metadata) but clear its state
+                self.conn.execute(
+                    "UPDATE conversations SET last_activity = 0, last_preview = '', unread_count = 0, \
+                     pinned = 0, archived = 0, marked_unread = 0, draft = NULL WHERE id = ?1",
+                    [&key],
+                )?;
+                changes.removed_conversations.push(conversation);
+            }
+            Mutation::SetMuted {
+                conversation,
+                until,
+            } => {
+                self.conn.execute(
+                    "UPDATE conversations SET muted_until = ?2 WHERE id = ?1",
+                    params![conversation.to_string(), until.unwrap_or(0)],
+                )?;
+                changes
+                    .conversations
+                    .extend(self.conversation(&conversation)?);
+            }
+            Mutation::SetMarkedUnread {
+                conversation,
+                unread,
+            } => {
+                self.set_column(&conversation, "marked_unread", unread as i64)?;
+                changes
+                    .conversations
+                    .extend(self.conversation(&conversation)?);
+            }
+            Mutation::SetBlocked {
+                conversation,
+                blocked,
+            } => {
+                self.ensure_conversation(&conversation)?;
+                self.set_column(&conversation, "blocked", blocked as i64)?;
+                if !blocked {
+                    self.set_column(&conversation, "accepted", 1)?;
+                }
+                changes
+                    .conversations
+                    .extend(self.conversation(&conversation)?);
+            }
+            Mutation::Accept { conversation } => {
+                self.set_column(&conversation, "accepted", 1)?;
+                self.set_column(&conversation, "blocked", 0)?;
+                changes
+                    .conversations
+                    .extend(self.conversation(&conversation)?);
+            }
         }
         Ok(changes)
+    }
+
+    /// Local paths of a message's attachments.
+    fn attachment_files(&self, id: i64) -> Result<Vec<String>> {
+        Ok(self
+            .message(id)
+            .map(|m| {
+                m.attachments
+                    .into_iter()
+                    .filter_map(|a| a.local_path)
+                    .collect()
+            })
+            .unwrap_or_default())
+    }
+
+    fn set_column(&self, id: &ConversationId, column: &'static str, value: i64) -> Result<()> {
+        self.conn.execute(
+            &format!("UPDATE conversations SET {column} = ?2 WHERE id = ?1"),
+            params![id.to_string(), value],
+        )?;
+        Ok(())
+    }
+
+    /// A contact synced from the phone's address book (has a name).
+    fn is_known_contact(&self, uuid: &Uuid) -> Result<bool> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT 1 FROM contacts WHERE uuid = ?1 AND name IS NOT NULL",
+                [uuid.to_string()],
+                |_| Ok(()),
+            )
+            .optional()?
+            .is_some())
+    }
+
+    /// Starts the disappearing timer of read incoming messages that have one.
+    fn start_timers(&self, conversation: &ConversationId, now: Millis) -> Result<Vec<Message>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, expires_in FROM messages WHERE conversation_id = ?1 AND read = 1 \
+             AND expires_in > 0 AND expires_at IS NULL",
+        )?;
+        let rows: Vec<(i64, i64)> = stmt
+            .query_map([conversation.to_string()], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<rusqlite::Result<_>>()?;
+        let mut out = Vec::new();
+        for (id, secs) in rows {
+            self.conn.execute(
+                "UPDATE messages SET expires_at = ?2 WHERE id = ?1",
+                params![id, now + secs * 1000],
+            )?;
+            out.push(self.message(id)?);
+        }
+        Ok(out)
     }
 
     fn insert_message(&self, m: &NewMessage) -> Result<Option<i64>> {
         let quote = m.quote.as_ref().map(serde_json::to_string).transpose()?;
         let n = self.conn.execute(
             "INSERT OR IGNORE INTO messages (conversation_id, author, sent_at, received_at, outgoing, \
-             body, attachments, quote, status, read, expires_in) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+             body, attachments, quote, status, read, expires_in, expires_at, kind, body_ranges) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
             params![
                 m.conversation.to_string(),
                 m.author.to_string(),
@@ -802,7 +1057,13 @@ impl Writer<'_> {
                 quote,
                 m.status as i64,
                 (m.read || m.outgoing) as i64,
-                m.expires_in_secs,
+                m.expires_in_secs.filter(|s| *s > 0),
+                // outgoing messages start their timer when sent
+                m.expires_in_secs
+                    .filter(|s| *s > 0 && m.outgoing)
+                    .map(|s| m.sent_at + s as i64 * 1000),
+                serde_json::to_string(&m.kind)?,
+                serde_json::to_string(&m.body_ranges)?,
             ],
         )?;
         Ok((n == 1).then(|| self.conn.last_insert_rowid()))

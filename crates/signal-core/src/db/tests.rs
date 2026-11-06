@@ -1,6 +1,6 @@
 use super::*;
 use crate::ids::GroupKey;
-use crate::model::{Attachment, Quote};
+use crate::model::{Attachment, MessageKind, Quote};
 use crate::protocol::ReceiptKind;
 
 const ME: Uuid = Uuid::from_u128(0xAAAA);
@@ -24,6 +24,8 @@ fn incoming(conv: ConversationId, author: Uuid, sent_at: Millis, body: &str) -> 
         status: MessageStatus::Received,
         read: false,
         expires_in_secs: None,
+        kind: MessageKind::Normal,
+        body_ranges: vec![],
     })
 }
 
@@ -40,6 +42,8 @@ fn outgoing(conv: ConversationId, sent_at: Millis, body: &str) -> Mutation {
         status: MessageStatus::Sending,
         read: true,
         expires_in_secs: None,
+        kind: MessageKind::Normal,
+        body_ranges: vec![],
     })
 }
 
@@ -446,6 +450,8 @@ fn attachments_and_quotes_roundtrip() {
         status: MessageStatus::Sending,
         read: true,
         expires_in_secs: Some(3600),
+        kind: MessageKind::Normal,
+        body_ranges: vec![],
     }))
     .unwrap();
     let m = db.message_by_key(&alice(), &ME, 10).unwrap().unwrap();
@@ -511,6 +517,8 @@ fn attachment_download_updates_path() {
             status: MessageStatus::Received,
             read: false,
             expires_in_secs: None,
+            kind: MessageKind::Normal,
+            body_ranges: vec![],
         }))
         .unwrap();
     let id = ch.messages[0].id;
@@ -544,4 +552,264 @@ fn attachment_download_updates_path() {
         .unwrap()
         .is_empty()
     );
+}
+
+#[test]
+fn migrates_v1_database_preserving_mutes() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("v1.db");
+    {
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        conn.execute_batch(MIGRATIONS[0]).unwrap();
+        conn.pragma_update(None, "user_version", 1).unwrap();
+        conn.execute(
+            "INSERT INTO conversations (id, title, last_activity, muted) VALUES (?1, 'A', 5, 1)",
+            [alice().to_string()],
+        )
+        .unwrap();
+    }
+    let db = Database::open(&path, None).unwrap();
+    assert_eq!(db.schema_version().unwrap(), 2);
+    let c = db.conversation(&alice()).unwrap().unwrap();
+    assert!(c.muted);
+    assert_eq!(c.muted_until, Some(i64::MAX));
+    assert!(c.accepted && !c.blocked && !c.marked_unread);
+}
+
+#[test]
+fn disappearing_messages_lifecycle() {
+    let mut db = db();
+    let ch = db
+        .apply(Mutation::SetExpireTimer {
+            conversation: alice(),
+            secs: Some(60),
+            author: ME,
+            outgoing: true,
+            at: 1_000,
+        })
+        .unwrap();
+    assert_eq!(ch.conversations[0].expire_timer, Some(60));
+    let notice = &ch.messages[0];
+    assert_eq!(notice.kind, MessageKind::TimerChanged { secs: Some(60) });
+    assert!(notice.read && notice.expires_at.is_none());
+    assert_eq!(ch.conversations[0].unread_count, 0, "notices aren't unread");
+
+    // outgoing: timer starts at send time
+    let mut out = NewMessage::text(alice(), ME, 2_000, true, "bye");
+    out.expires_in_secs = Some(60);
+    let ch = db.apply(Mutation::InsertMessage(out)).unwrap();
+    assert_eq!(ch.messages[0].expires_at, Some(62_000));
+
+    // incoming: timer starts when read
+    let mut inc = NewMessage::text(alice(), ALICE, 3_000, false, "hi");
+    inc.expires_in_secs = Some(60);
+    let ch = db.apply(Mutation::InsertMessage(inc)).unwrap();
+    assert_eq!(ch.messages[0].expires_at, None);
+    let ch = db
+        .apply(Mutation::MarkConversationRead {
+            conversation: alice(),
+        })
+        .unwrap();
+    let started = ch.messages.iter().find(|m| m.body == "hi").unwrap();
+    assert!(started.expires_at.is_some());
+
+    // sweep at 62s removes only the outgoing one
+    let ch = db.apply(Mutation::ExpireDue { now: 62_000 }).unwrap();
+    assert_eq!(ch.removed_messages.len(), 1);
+    assert_eq!(ch.conversations.len(), 1);
+    let left: Vec<String> = db
+        .messages(&alice(), None, 10)
+        .unwrap()
+        .into_iter()
+        .map(|m| m.body)
+        .collect();
+    assert_eq!(left, vec!["".to_string(), "hi".to_string()]);
+    assert!(
+        ch.clone()
+            .into_events()
+            .iter()
+            .any(|e| matches!(e, crate::BackendEvent::MessageRemoved { .. }))
+    );
+
+    // a message without a timer turns the chat's timer off (it was disabled elsewhere)
+    db.apply(Mutation::InsertMessage(NewMessage::text(
+        alice(),
+        ALICE,
+        4_000,
+        false,
+        "plain",
+    )))
+    .unwrap();
+    assert_eq!(
+        db.conversation(&alice()).unwrap().unwrap().expire_timer,
+        None
+    );
+}
+
+#[test]
+fn delete_for_me_and_delete_chat() {
+    let mut db = db();
+    db.apply(incoming(alice(), ALICE, 1, "a")).unwrap();
+    let ch = db.apply(incoming(alice(), ALICE, 2, "b")).unwrap();
+    let id = ch.messages[0].id;
+    let ch = db.apply(Mutation::DeleteForMe { message_id: id }).unwrap();
+    assert_eq!(ch.removed_messages, vec![(alice(), id)]);
+    assert_eq!(ch.conversations[0].last_preview, "a");
+    assert!(
+        db.apply(Mutation::DeleteForMe { message_id: 999 })
+            .unwrap()
+            .is_empty()
+    );
+
+    db.set_pinned(&alice(), true).unwrap();
+    let ch = db
+        .apply(Mutation::DeleteConversation {
+            conversation: alice(),
+        })
+        .unwrap();
+    assert_eq!(ch.removed_conversations, vec![alice()]);
+    assert!(db.messages(&alice(), None, 10).unwrap().is_empty());
+    assert!(db.conversations().unwrap().is_empty(), "no longer listed");
+    assert!(
+        db.conversation(&alice()).unwrap().is_some(),
+        "contact metadata kept"
+    );
+}
+
+#[test]
+fn timed_mute_and_marked_unread() {
+    let mut db = db();
+    db.apply(incoming(alice(), ALICE, 1, "a")).unwrap();
+    let future = crate::model::now_millis() + 60_000;
+    let ch = db
+        .apply(Mutation::SetMuted {
+            conversation: alice(),
+            until: Some(future),
+        })
+        .unwrap();
+    assert!(ch.conversations[0].muted);
+    let ch = db
+        .apply(Mutation::SetMuted {
+            conversation: alice(),
+            until: Some(10),
+        })
+        .unwrap();
+    assert!(!ch.conversations[0].muted, "expired mute");
+    let ch = db
+        .apply(Mutation::SetMuted {
+            conversation: alice(),
+            until: None,
+        })
+        .unwrap();
+    assert_eq!(ch.conversations[0].muted_until, None);
+
+    db.apply(Mutation::MarkConversationRead {
+        conversation: alice(),
+    })
+    .unwrap();
+    let ch = db
+        .apply(Mutation::SetMarkedUnread {
+            conversation: alice(),
+            unread: true,
+        })
+        .unwrap();
+    assert!(ch.conversations[0].has_unread());
+    let ch = db
+        .apply(Mutation::MarkConversationRead {
+            conversation: alice(),
+        })
+        .unwrap();
+    assert!(
+        !ch.conversations[0].marked_unread,
+        "opening clears the mark"
+    );
+}
+
+#[test]
+fn message_requests_and_blocking() {
+    let mut db = db();
+    // stranger: request
+    let ch = db.apply(incoming(alice(), ALICE, 1, "hey")).unwrap();
+    assert!(!ch.conversations[0].accepted);
+    // synced contact: accepted
+    db.apply(Mutation::UpsertContact(Contact {
+        uuid: BOB,
+        name: Some("Bob".into()),
+        profile_name: None,
+        phone: None,
+    }))
+    .unwrap();
+    let ch = db
+        .apply(incoming(ConversationId::Direct(BOB), BOB, 1, "yo"))
+        .unwrap();
+    assert!(ch.conversations[0].accepted);
+    // replying accepts
+    let ch = db.apply(outgoing(alice(), 5, "hello stranger")).unwrap();
+    assert!(ch.conversations[0].accepted);
+
+    let ch = db
+        .apply(Mutation::SetBlocked {
+            conversation: alice(),
+            blocked: true,
+        })
+        .unwrap();
+    assert!(ch.conversations[0].blocked);
+    assert!(
+        db.apply(incoming(alice(), ALICE, 10, "spam"))
+            .unwrap()
+            .is_empty(),
+        "blocked: dropped"
+    );
+    let ch = db
+        .apply(Mutation::Accept {
+            conversation: alice(),
+        })
+        .unwrap();
+    assert!(!ch.conversations[0].blocked && ch.conversations[0].accepted);
+}
+
+#[test]
+fn edits_keep_history() {
+    let mut db = db();
+    db.apply(incoming(alice(), ALICE, 100, "v1")).unwrap();
+    for (body, at) in [("v2", 150), ("v3", 160)] {
+        db.apply(Mutation::Edit {
+            conversation: alice(),
+            author: ALICE,
+            target_sent_at: 100,
+            body: body.into(),
+            edited_at: at,
+        })
+        .unwrap();
+    }
+    let m = db.message_by_key(&alice(), &ALICE, 100).unwrap().unwrap();
+    assert_eq!(m.body, "v3");
+    let history: Vec<(&str, i64)> = m
+        .edit_history
+        .iter()
+        .map(|r| (r.body.as_str(), r.at))
+        .collect();
+    assert_eq!(history, vec![("v1", 100), ("v2", 150)]);
+}
+
+#[test]
+fn body_ranges_roundtrip() {
+    use crate::model::{BodyRange, RangeKind};
+    let mut db = db();
+    let mut m = NewMessage::text(alice(), ALICE, 1, false, "hi \u{FFFC} bold");
+    m.body_ranges = vec![
+        BodyRange {
+            start: 3,
+            length: 1,
+            kind: RangeKind::Mention(BOB),
+        },
+        BodyRange {
+            start: 5,
+            length: 4,
+            kind: RangeKind::Bold,
+        },
+    ];
+    let ch = db.apply(Mutation::InsertMessage(m.clone())).unwrap();
+    assert_eq!(ch.messages[0].body_ranges, m.body_ranges);
+    assert_eq!(ch.conversations[0].last_preview, "hi @ bold");
 }

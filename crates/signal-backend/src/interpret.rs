@@ -4,14 +4,14 @@
 use presage::libsignal_service::content::{Content, ContentBody};
 use presage::libsignal_service::prelude::ProtobufMessage;
 use presage::libsignal_service::proto::{
-    AttachmentPointer, DataMessage, EditMessage, ReceiptMessage, SyncMessage, TypingMessage,
-    data_message, receipt_message, sync_message, typing_message,
+    AttachmentPointer, BodyRange, DataMessage, EditMessage, ReceiptMessage, SyncMessage,
+    TypingMessage, body_range, data_message, receipt_message, sync_message, typing_message,
 };
 use presage::libsignal_service::protocol::ServiceId;
 use presage::store::Thread;
 use signal_core::{
-    Attachment, ConversationId, GroupKey, MessageStatus, Millis, Mutation, NewMessage, Quote,
-    ReceiptKind,
+    Attachment, ConversationId, GroupKey, MessageKind, MessageStatus, Millis, Mutation, NewMessage,
+    Quote, RangeKind, ReceiptKind,
 };
 use uuid::Uuid;
 
@@ -132,6 +132,17 @@ fn data_message(
         return;
     }
 
+    if dm.flags.unwrap_or(0) & data_message::Flags::ExpirationTimerUpdate as u32 != 0 {
+        out.push(Output::Mutation(Mutation::SetExpireTimer {
+            conversation,
+            secs: dm.expire_timer.filter(|t| *t > 0),
+            author,
+            outgoing,
+            at: sent_at,
+        }));
+        return;
+    }
+
     let body = dm.body.clone().unwrap_or_default();
     let attachments: Vec<Attachment> = dm.attachments.iter().map(attachment_from_pointer).collect();
     if body.trim().is_empty() && attachments.is_empty() {
@@ -154,7 +165,35 @@ fn data_message(
         },
         read: outgoing,
         expires_in_secs: dm.expire_timer.filter(|t| *t > 0),
+        kind: MessageKind::Normal,
+        body_ranges: dm
+            .body_ranges
+            .iter()
+            .filter_map(body_range_from_proto)
+            .collect(),
     })));
+}
+
+/// Converts a protocol body range (style or mention) into the domain model.
+pub fn body_range_from_proto(r: &BodyRange) -> Option<signal_core::BodyRange> {
+    use body_range::{AssociatedValue, Style};
+    let kind = match r.associated_value.as_ref()? {
+        AssociatedValue::Style(s) => match Style::try_from(*s).ok()? {
+            Style::Bold => RangeKind::Bold,
+            Style::Italic => RangeKind::Italic,
+            Style::Spoiler => RangeKind::Spoiler,
+            Style::Strikethrough => RangeKind::Strikethrough,
+            Style::Monospace => RangeKind::Monospace,
+            Style::None => return None,
+        },
+        AssociatedValue::MentionAci(aci) => RangeKind::Mention(parse_aci(Some(aci), None)?),
+        AssociatedValue::MentionAciBinary(b) => RangeKind::Mention(parse_aci(None, Some(b))?),
+    };
+    Some(signal_core::BodyRange {
+        start: r.start?,
+        length: r.length?,
+        kind,
+    })
 }
 
 fn edit_message(
@@ -617,6 +656,84 @@ mod tests {
             ..Default::default()
         };
         assert!(run(&content(ME, t)).is_empty());
+    }
+
+    #[test]
+    fn timer_update_becomes_notice() {
+        let dm = DataMessage {
+            timestamp: Some(500),
+            flags: Some(data_message::Flags::ExpirationTimerUpdate as u32),
+            expire_timer: Some(3600),
+            ..Default::default()
+        };
+        assert_eq!(
+            only_mutation(run(&content(ALICE, dm))),
+            Mutation::SetExpireTimer {
+                conversation: ConversationId::Direct(ALICE),
+                secs: Some(3600),
+                author: ALICE,
+                outgoing: false,
+                at: 500
+            }
+        );
+        let dm = DataMessage {
+            timestamp: Some(600),
+            flags: Some(2),
+            expire_timer: Some(0),
+            ..Default::default()
+        };
+        assert!(matches!(
+            only_mutation(run(&content(ALICE, dm))),
+            Mutation::SetExpireTimer { secs: None, .. }
+        ));
+    }
+
+    #[test]
+    fn body_ranges_are_kept() {
+        let mut dm = text(100, "hi \u{FFFC} there");
+        dm.body_ranges = vec![
+            BodyRange {
+                start: Some(3),
+                length: Some(1),
+                associated_value: Some(body_range::AssociatedValue::MentionAci(BOB.to_string())),
+            },
+            BodyRange {
+                start: Some(5),
+                length: Some(5),
+                associated_value: Some(body_range::AssociatedValue::Style(
+                    body_range::Style::Bold as i32,
+                )),
+            },
+            // malformed ranges are dropped
+            BodyRange {
+                start: None,
+                length: Some(1),
+                associated_value: Some(body_range::AssociatedValue::Style(1)),
+            },
+            BodyRange {
+                start: Some(0),
+                length: Some(1),
+                associated_value: Some(body_range::AssociatedValue::Style(0)),
+            },
+        ];
+        let Mutation::InsertMessage(m) = only_mutation(run(&content(ALICE, dm))) else {
+            panic!()
+        };
+        assert_eq!(
+            m.body_ranges,
+            vec![
+                signal_core::BodyRange {
+                    start: 3,
+                    length: 1,
+                    kind: RangeKind::Mention(BOB)
+                },
+                signal_core::BodyRange {
+                    start: 5,
+                    length: 5,
+                    kind: RangeKind::Bold
+                },
+            ]
+        );
     }
 
     #[test]

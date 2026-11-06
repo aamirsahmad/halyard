@@ -27,8 +27,8 @@ use presage::store::{ContentsStore, StateStore, Store};
 use presage_store_sqlite::SqliteStore;
 use signal_core::{
     AccountInfo, AccountState, Attachment, BackendCommand, BackendEvent, Changes, ConnectionState,
-    Contact, ConversationId, Database, GroupKey, MessageStatus, Millis, Mutation, NewMessage,
-    Quote, now_millis,
+    Contact, ConversationId, Database, GroupKey, MessageKind, MessageStatus, Millis, Mutation,
+    NewMessage, Quote, now_millis,
 };
 use tokio::sync::mpsc;
 use tokio::task::{JoinHandle, LocalSet, spawn_local};
@@ -226,7 +226,15 @@ impl Worker {
         (self.events)(ev);
     }
 
-    fn emit_changes(&self, changes: Changes) {
+    fn emit_changes(&self, mut changes: Changes) {
+        // only ever delete our own (encrypted) attachment files, never user originals
+        let store = self.config.paths.attachments_dir();
+        for f in std::mem::take(&mut changes.removed_files) {
+            let path = PathBuf::from(f);
+            if path.starts_with(&store) {
+                let _ = std::fs::remove_file(path);
+            }
+        }
         for ev in changes.into_events() {
             self.emit(ev);
         }
@@ -250,8 +258,16 @@ impl Worker {
     async fn run(mut self, mut rx: mpsc::UnboundedReceiver<BackendCommand>) {
         let mut internal_rx = self.internal_rx.take().expect("internal rx");
         self.startup().await;
+        let mut sweep = tokio::time::interval(Duration::from_secs(1));
+        sweep.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         loop {
             tokio::select! {
+                _ = sweep.tick() => {
+                    let ch = self.apply(Mutation::ExpireDue { now: now_millis() });
+                    if !ch.is_empty() {
+                        self.emit_changes(ch);
+                    }
+                }
                 cmd = rx.recv() => match cmd {
                     None | Some(BackendCommand::Shutdown) => break,
                     Some(cmd) => self.handle_command(cmd).await,
@@ -582,6 +598,34 @@ impl Worker {
     async fn handle_command(&mut self, cmd: BackendCommand) {
         match cmd {
             BackendCommand::Link { device_name } => self.start_linking(device_name),
+            BackendCommand::SetExpireTimer { conversation, secs } => {
+                let Some(me) = self.me else { return };
+                let at = self.next_ts();
+                let ch = self.apply(Mutation::SetExpireTimer {
+                    conversation,
+                    secs,
+                    author: me,
+                    outgoing: true,
+                    at,
+                });
+                self.emit_changes(ch);
+                let dm = DataMessage {
+                    timestamp: Some(at as u64),
+                    flags: Some(data_message::Flags::ExpirationTimerUpdate as u32),
+                    expire_timer: Some(secs.unwrap_or(0)),
+                    ..Default::default()
+                };
+                self.spawn_send(conversation, dm, at, false);
+            }
+            BackendCommand::Forward {
+                targets,
+                body,
+                attachments,
+            } => {
+                for target in targets {
+                    self.send_text(target, body.clone(), None, attachments.clone(), None);
+                }
+            }
             BackendCommand::SendText {
                 conversation,
                 body,
@@ -760,6 +804,12 @@ impl Worker {
         if body.trim().is_empty() && attachment_paths.is_empty() {
             return;
         }
+        let timer = self
+            .db
+            .conversation(&conversation)
+            .ok()
+            .flatten()
+            .and_then(|c| c.expire_timer);
         let sent_at = match resend_ts {
             Some(ts) => ts,
             None => {
@@ -779,7 +829,9 @@ impl Worker {
                     quote: quote.clone(),
                     status: MessageStatus::Sending,
                     read: true,
-                    expires_in_secs: None,
+                    expires_in_secs: timer,
+                    kind: MessageKind::Normal,
+                    body_ranges: vec![],
                 }));
                 self.emit_changes(ch);
                 ts
@@ -795,6 +847,7 @@ impl Worker {
                 let dm = DataMessage {
                     body: Some(body).filter(|b| !b.is_empty()),
                     timestamp: Some(sent_at as u64),
+                    expire_timer: Some(timer.unwrap_or(0)),
                     attachments: pointers,
                     quote: quote.map(|q| data_message::Quote {
                         id: Some(q.sent_at as u64),

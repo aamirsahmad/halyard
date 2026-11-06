@@ -115,6 +115,10 @@ fn incoming(id: i64, conv: ConversationId, author: uuid::Uuid, body: &str) -> Me
         edited_at: None,
         deleted: false,
         expires_in_secs: None,
+        expires_at: None,
+        kind: MessageKind::Normal,
+        body_ranges: vec![],
+        edit_history: vec![],
     }
 }
 

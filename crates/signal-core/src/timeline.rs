@@ -62,7 +62,7 @@ pub fn build_timeline(
 mod tests {
     use super::*;
     use crate::ids::ConversationId;
-    use crate::model::MessageStatus;
+    use crate::model::{MessageKind, MessageStatus};
     use uuid::Uuid;
 
     fn m(author: u128, sent_at: Millis) -> Message {
@@ -82,6 +82,10 @@ mod tests {
             edited_at: None,
             deleted: false,
             expires_in_secs: None,
+            expires_at: None,
+            kind: MessageKind::Normal,
+            body_ranges: vec![],
+            edit_history: vec![],
         }
     }
 

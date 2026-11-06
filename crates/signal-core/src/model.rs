@@ -98,6 +98,46 @@ pub struct Reaction {
     pub at: Millis,
 }
 
+/// Formatting or mention over a UTF-16 range of a message body (Signal's
+/// `BodyRange`). Mentions cover a U+FFFC placeholder in the body.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BodyRange {
+    pub start: u32,
+    pub length: u32,
+    pub kind: RangeKind,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RangeKind {
+    Bold,
+    Italic,
+    Strikethrough,
+    Monospace,
+    Spoiler,
+    Mention(Uuid),
+}
+
+/// Placeholder character Signal puts in the body where a mention goes.
+pub const MENTION_PLACEHOLDER: char = '\u{FFFC}';
+
+/// What a timeline entry is.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum MessageKind {
+    #[default]
+    Normal,
+    /// "X set the disappearing message timer to …" notice.
+    TimerChanged { secs: Option<u32> },
+}
+
+/// A previous version of an edited message.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Revision {
+    pub body: String,
+    pub at: Millis,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Message {
     /// Local row id.
@@ -117,15 +157,29 @@ pub struct Message {
     pub edited_at: Option<Millis>,
     pub deleted: bool,
     pub expires_in_secs: Option<u32>,
+    /// When the message disappears (timer started).
+    pub expires_at: Option<Millis>,
+    pub kind: MessageKind,
+    pub body_ranges: Vec<BodyRange>,
+    /// Earlier versions, oldest first.
+    pub edit_history: Vec<Revision>,
 }
 
 impl Message {
+    pub fn is_notice(&self) -> bool {
+        self.kind != MessageKind::Normal
+    }
+
     /// Text shown in the conversation list preview.
     pub fn preview(&self) -> String {
         if self.deleted {
             return "This message was deleted.".into();
         }
-        let body = self.body.trim();
+        if let MessageKind::TimerChanged { secs } = &self.kind {
+            return timer_notice(None, *secs);
+        }
+        let body = self.body.replace(MENTION_PLACEHOLDER, "@");
+        let body = body.trim();
         if !body.is_empty() {
             return body.lines().next().unwrap_or_default().to_string();
         }
@@ -144,6 +198,7 @@ impl Message {
     /// Whether the user may edit this message at `now`.
     pub fn editable(&self, now: Millis) -> bool {
         self.outgoing
+            && !self.is_notice()
             && !self.deleted
             && !self.body.trim().is_empty()
             && self.status != MessageStatus::Failed
@@ -193,9 +248,19 @@ pub struct Conversation {
     pub unread_count: u32,
     pub pinned: bool,
     pub archived: bool,
+    /// Muted right now (derived from `muted_until` when loaded).
     pub muted: bool,
+    /// Muted until this time; `Some(Millis::MAX)` means forever.
+    pub muted_until: Option<Millis>,
     pub draft: Option<String>,
     pub members: Vec<Uuid>,
+    /// Manually marked as unread.
+    pub marked_unread: bool,
+    /// Disappearing-message timer.
+    pub expire_timer: Option<u32>,
+    pub blocked: bool,
+    /// False while this is a message request from an unknown sender.
+    pub accepted: bool,
 }
 
 impl Conversation {
@@ -210,13 +275,23 @@ impl Conversation {
             pinned: false,
             archived: false,
             muted: false,
+            muted_until: None,
             draft: None,
             members: Vec::new(),
+            marked_unread: false,
+            expire_timer: None,
+            blocked: false,
+            accepted: true,
         }
     }
 
     pub fn is_group(&self) -> bool {
         self.id.is_group()
+    }
+
+    /// Whether the conversation shows as unread in the list.
+    pub fn has_unread(&self) -> bool {
+        self.unread_count > 0 || self.marked_unread
     }
 }
 
@@ -228,6 +303,60 @@ pub struct AccountInfo {
     pub device_id: u32,
     pub device_name: Option<String>,
 }
+
+/// Human label for a disappearing-message duration, like Signal's.
+pub fn timer_label(secs: u32) -> String {
+    const UNITS: [(u32, &str, &str); 5] = [
+        (7 * 86_400, "week", "weeks"),
+        (86_400, "day", "days"),
+        (3_600, "hour", "hours"),
+        (60, "minute", "minutes"),
+        (1, "second", "seconds"),
+    ];
+    for (unit, one, many) in UNITS {
+        if secs >= unit && secs % unit == 0 {
+            let n = secs / unit;
+            return format!("{n} {}", if n == 1 { one } else { many });
+        }
+    }
+    format!("{secs} seconds")
+}
+
+/// Short countdown ("5m", "2h", "3d", "1w") for a remaining duration.
+pub fn timer_short(remaining_ms: Millis) -> String {
+    let s = (remaining_ms.max(0) + 999) / 1000;
+    match s {
+        0..=59 => format!("{s}s"),
+        60..=3_599 => format!("{}m", s / 60),
+        3_600..=86_399 => format!("{}h", s / 3_600),
+        86_400..=604_799 => format!("{}d", s / 86_400),
+        _ => format!("{}w", s / 604_800),
+    }
+}
+
+/// Text of a timer-change notice; `who` is `None` for "You".
+pub fn timer_notice(who: Option<&str>, secs: Option<u32>) -> String {
+    let who = who.unwrap_or("You");
+    match secs.filter(|s| *s > 0) {
+        Some(s) => format!(
+            "{who} set the disappearing message timer to {}.",
+            timer_label(s)
+        ),
+        None => format!("{who} disabled disappearing messages."),
+    }
+}
+
+/// The disappearing-message presets Signal offers.
+pub const TIMER_PRESETS: [u32; 6] = [30, 5 * 60, 3_600, 8 * 3_600, 86_400, 7 * 86_400];
+
+/// Mute durations offered in the UI, in milliseconds (`None` = always).
+pub const MUTE_PRESETS: [(&str, Option<Millis>); 5] = [
+    ("For 1 hour", Some(3_600_000)),
+    ("For 8 hours", Some(8 * 3_600_000)),
+    ("For 1 day", Some(86_400_000)),
+    ("For 1 week", Some(7 * 86_400_000)),
+    ("Always", None),
+];
 
 #[cfg(test)]
 mod tests {
@@ -278,7 +407,42 @@ mod tests {
             edited_at: None,
             deleted: false,
             expires_in_secs: None,
+            expires_at: None,
+            kind: MessageKind::Normal,
+            body_ranges: vec![],
+            edit_history: vec![],
         }
+    }
+
+    #[test]
+    fn timer_labels() {
+        assert_eq!(timer_label(30), "30 seconds");
+        assert_eq!(timer_label(60), "1 minute");
+        assert_eq!(timer_label(8 * 3600), "8 hours");
+        assert_eq!(timer_label(86_400), "1 day");
+        assert_eq!(timer_label(604_800), "1 week");
+        assert_eq!(timer_label(90), "90 seconds");
+        assert_eq!(timer_short(4_000), "4s");
+        assert_eq!(timer_short(5 * 60_000), "5m");
+        assert_eq!(timer_short(3 * 86_400_000), "3d");
+        assert_eq!(
+            timer_notice(Some("Alice"), Some(3600)),
+            "Alice set the disappearing message timer to 1 hour."
+        );
+        assert_eq!(
+            timer_notice(None, None),
+            "You disabled disappearing messages."
+        );
+    }
+
+    #[test]
+    fn preview_replaces_mentions_and_notices() {
+        let mut m = msg("hi \u{FFFC}!", vec![]);
+        assert_eq!(m.preview(), "hi @!");
+        m.kind = MessageKind::TimerChanged { secs: Some(60) };
+        assert!(m.preview().contains("1 minute"));
+        m.outgoing = true;
+        assert!(!m.editable(2), "notices can't be edited");
     }
 
     #[test]
