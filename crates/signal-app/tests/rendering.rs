@@ -27,6 +27,8 @@ mod rendering {
             gpui_kit::platform::current_headless_renderer,
         );
         cx.update(gpui_kit::init);
+        // deterministic captures: skip entrance animations
+        cx.update(|cx| cx.set_reduce_motion(true));
         cx
     }
 
@@ -42,7 +44,7 @@ mod rendering {
         let mut db = Database::open(dir.path().join("m.db"), None).unwrap();
         seed(&mut db, now_millis()).unwrap();
         let sink = RecordingSink::default();
-        let (handle, _) = cx
+        let (handle, app) = cx
             .update(|cx| {
                 gpui_kit::open_window(
                     WindowOptions {
@@ -57,20 +59,16 @@ mod rendering {
                     cx,
                     move |window, cx| {
                         cx.new(|cx| {
-                            let mut app = SignalApp::new(
-                                db,
-                                Rc::new(sink.clone()),
-                                Rc::new(sink),
-                                window,
-                                cx,
-                            );
-                            setup(&mut app, window, cx);
-                            app
+                            SignalApp::new(db, Rc::new(sink.clone()), Rc::new(sink), window, cx)
                         })
                     },
                 )
             })
             .unwrap();
+        cx.update_window(handle, |_, window, cx| {
+            app.update(cx, |app, cx| setup(app, window, cx))
+        })
+        .unwrap();
         for _ in 0..3 {
             cx.update_window(handle.into(), |_, window, cx| window.render_frame(cx))
                 .unwrap();
@@ -120,6 +118,11 @@ mod rendering {
             app.open_conversation(ConversationId::Direct(DEMO_ALICE), window, cx);
         });
         let _welcome = capture("welcome", ThemeMode::Light, registered);
+        let _members = capture("group-members", ThemeMode::Light, |app, window, cx| {
+            registered(app, window, cx);
+            app.open_conversation(ConversationId::Group(DEMO_GROUP), window, cx);
+            app.show_details(ConversationId::Group(DEMO_GROUP), window, cx);
+        });
         assert_eq!(light.dimensions(), dark.dimensions());
         assert_ne!(
             light.as_raw(),

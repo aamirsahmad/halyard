@@ -38,10 +38,10 @@ pub enum Output {
 
 /// Parses an ACI given either as a string or as 16 raw bytes.
 pub fn parse_aci(text: Option<&str>, binary: Option<&[u8]>) -> Option<Uuid> {
-    if let Some(b) = binary {
-        if let Some(sid) = ServiceId::parse_from_service_id_binary(b) {
-            return Some(sid.raw_uuid());
-        }
+    if let Some(b) = binary
+        && let Some(sid) = ServiceId::parse_from_service_id_binary(b)
+    {
+        return Some(sid.raw_uuid());
     }
     text.and_then(ServiceId::parse_from_service_id_string)
         .map(|s| s.raw_uuid())
@@ -208,17 +208,14 @@ pub fn interpret(content: &Content, ctx: &Ctx) -> Vec<Output> {
             read,
             ..
         }) => {
-            match sync {
-                sync_message::Content::Sent(sent) => {
-                    if let Some(dm) = &sent.message {
-                        let ts = sent.timestamp.map(|t| t as Millis).unwrap_or(fallback_ts);
-                        data_message(dm, conversation, ctx.me, true, ts, ctx, &mut out);
-                    }
-                    if let Some(edit) = &sent.edit_message {
-                        edit_message(edit, conversation, ctx.me, &mut out);
-                    }
+            if let sync_message::Content::Sent(sent) = sync {
+                if let Some(dm) = &sent.message {
+                    let ts = sent.timestamp.map(|t| t as Millis).unwrap_or(fallback_ts);
+                    data_message(dm, conversation, ctx.me, true, ts, ctx, &mut out);
                 }
-                _ => {}
+                if let Some(edit) = &sent.edit_message {
+                    edit_message(edit, conversation, ctx.me, &mut out);
+                }
             }
             read_sync(read, &mut out);
         }
@@ -243,23 +240,21 @@ pub fn interpret(content: &Content, ctx: &Ctx) -> Vec<Output> {
         }
         ContentBody::TypingMessage(TypingMessage {
             action, group_id, ..
-        }) => {
-            if sender != ctx.me {
-                let conversation = match group_id.as_deref() {
-                    Some(id) if !id.is_empty() => match (ctx.group_by_id)(id) {
-                        Some(key) => ConversationId::Group(key),
-                        None => return out,
-                    },
-                    _ => ConversationId::Direct(sender),
-                };
-                let started = action.and_then(|a| typing_message::Action::try_from(a).ok())
-                    == Some(typing_message::Action::Started);
-                out.push(Output::Typing {
-                    conversation,
-                    who: sender,
-                    started,
-                });
-            }
+        }) if sender != ctx.me => {
+            let conversation = match group_id.as_deref() {
+                Some(id) if !id.is_empty() => match (ctx.group_by_id)(id) {
+                    Some(key) => ConversationId::Group(key),
+                    None => return out,
+                },
+                _ => ConversationId::Direct(sender),
+            };
+            let started = action.and_then(|a| typing_message::Action::try_from(a).ok())
+                == Some(typing_message::Action::Started);
+            out.push(Output::Typing {
+                conversation,
+                who: sender,
+                started,
+            });
         }
         // calls are out of scope for now; stories, null messages, etc. are ignored
         _ => {}

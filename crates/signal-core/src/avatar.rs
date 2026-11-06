@@ -93,10 +93,10 @@ pub fn initials(name: &str) -> Option<String> {
         .collect();
     let first = words.first()?.chars().next()?;
     let mut out: String = first.to_uppercase().collect();
-    if words.len() > 1 {
-        if let Some(last) = words.last().and_then(|w| w.chars().next()) {
-            out.extend(last.to_uppercase());
-        }
+    if words.len() > 1
+        && let Some(last) = words.last().and_then(|w| w.chars().next())
+    {
+        out.extend(last.to_uppercase());
     }
     Some(out)
 }

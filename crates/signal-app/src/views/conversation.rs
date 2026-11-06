@@ -8,7 +8,8 @@ use gpui_kit::component::{Icon, IconName, Sizable as _};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AnyElement, Context, ElementId, FontWeight, InteractiveElement as _, IntoElement,
-    ParentElement as _, Styled as _, TestSupportExt as _, Window, div, px,
+    ParentElement as _, StatefulInteractiveElement as _, Styled as _, TestSupportExt as _, Window,
+    div, px,
 };
 use signal_core::Conversation;
 
@@ -73,24 +74,35 @@ impl SignalApp {
             .px_4()
             .border_b_1()
             .border_color(p.border)
-            .child(Avatar::new(id.color_seed(), conv.title.clone()).group(id.is_group()).size(px(32.)))
             .child(
                 div()
+                    .id("conversation-details")
                     .flex()
-                    .flex_col()
                     .flex_1()
                     .min_w_0()
+                    .items_center()
+                    .gap_3()
+                    .cursor_pointer()
+                    .on_click(cx.listener(move |this, _, window, cx| this.show_details(id, window, cx)))
+                    .child(Avatar::new(id.color_seed(), conv.title.clone()).group(id.is_group()).size(px(32.)))
                     .child(
                         div()
-                            .id("conversation-title")
-                            .truncate()
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .child(conv.title.clone())
-            .test_support(),
+                            .flex()
+                            .flex_col()
+                            .min_w_0()
+                            .child(
+                                div()
+                                    .id("conversation-title")
+                                    .truncate()
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .child(conv.title.clone())
+                                    .test_support(),
+                            )
+                            .when(!subtitle.is_empty(), |d| {
+                                d.child(div().text_size(px(12.)).text_color(p.text_secondary).child(subtitle))
+                            }),
                     )
-                    .when(!subtitle.is_empty(), |d| {
-                        d.child(div().text_size(px(12.)).text_color(p.text_secondary).child(subtitle))
-                    }),
+                    .test_support(),
             )
             .child(
                 Button::new("conversation-menu").ghost().small().icon(IconName::Ellipsis).tooltip("More").dropdown_menu(
@@ -98,7 +110,7 @@ impl SignalApp {
                         let action = |label: &'static str, f: fn(&mut SignalApp, &mut Context<SignalApp>)| {
                             let e = entity.clone();
                             PopupMenuItem::new(label).on_click(move |_, _, cx| {
-                                let _ = e.update(cx, |this, cx| f(this, cx));
+                                let _ = e.update(cx, f);
                             })
                         };
                         let toggle = move |this: &mut SignalApp, cx: &mut Context<SignalApp>, which: u8| match which {
@@ -131,6 +143,14 @@ impl SignalApp {
                                 }),
                         )
                         .separator()
+                        .item({
+                            let e = entity.clone();
+                            PopupMenuItem::new(if id.is_group() { "Group members" } else { "Chat details" })
+                                .icon(Icon::new(Icons::Users))
+                                .on_click(move |_, window, cx| {
+                                    let _ = e.update(cx, |this, cx| this.show_details(id, window, cx));
+                                })
+                        })
                         .item(action("Close chat", |this, cx| this.close_conversation(cx)))
                     },
                 ),

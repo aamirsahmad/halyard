@@ -65,7 +65,8 @@ fn setup(cx: &mut TestAppContext, registered: bool) -> Harness {
         _dir: dir,
     };
     // Headless test windows don't report OS focus; assume the user is looking.
-    h.app.update(cx, |app, _| app.set_focus_override(Some(true)));
+    h.app
+        .update(cx, |app, _| app.set_focus_override(Some(true)));
     if registered {
         emit(
             cx,
@@ -294,7 +295,8 @@ fn new_chat_picker_opens_a_contact_without_history(cx: &mut TestAppContext) {
 #[gpui_kit::test]
 fn incoming_messages_update_list_and_notify_when_inactive(cx: &mut TestAppContext) {
     let h = setup(cx, true);
-    h.app.update(cx, |app, _| app.set_focus_override(Some(false)));
+    h.app
+        .update(cx, |app, _| app.set_focus_override(Some(false)));
     let mut conv = signal_core::Conversation::new(ConversationId::Direct(DEMO_BOB), "Bob Smith");
     conv.last_activity = now_millis();
     conv.last_preview = "new!".into();
@@ -327,7 +329,10 @@ fn incoming_messages_update_list_and_notify_when_inactive(cx: &mut TestAppContex
         h.sink.take_notifications(),
         vec![("Bob Smith".to_string(), "new!".to_string())]
     );
-    assert!(h.sink.take().is_empty(), "nothing is marked read while unfocused");
+    assert!(
+        h.sink.take().is_empty(),
+        "nothing is marked read while unfocused"
+    );
 }
 
 #[gpui_kit::test]
@@ -501,5 +506,50 @@ fn drafts_are_kept_per_conversation(cx: &mut TestAppContext) {
             h.app.read(cx).composer().read(cx).value().as_ref(),
             "unfinished thought"
         )
+    });
+}
+
+#[gpui_kit::test]
+fn clicking_group_header_lists_its_members(cx: &mut TestAppContext) {
+    let h = setup(cx, true);
+    let group = ConversationId::Group(DEMO_GROUP);
+    let app = h.app.clone();
+    with_window(cx, &h, |window, cx| {
+        app.update(cx, |app, cx| app.open_conversation(group, window, cx))
+    });
+    cx.run_until_parked();
+    with_window(cx, &h, |window, cx| {
+        assert!(window.try_find("conversation-details-panel").is_none());
+        window.click("conversation-details", cx);
+    });
+    cx.run_until_parked();
+    with_window(cx, &h, |window, _| {
+        let panel = window.find("conversation-details-panel");
+        assert!(panel.visible());
+        for member in [DEMO_ME, DEMO_ALICE, DEMO_BOB, DEMO_CAROL] {
+            assert!(
+                window.try_find(eid(format!("member-{member}"))).is_some(),
+                "member {member} listed"
+            );
+        }
+        // Dave is a contact but not in the group
+        assert!(
+            window
+                .try_find(eid(format!("member-{DEMO_DAVE}")))
+                .is_none()
+        );
+    });
+    cx.update(|cx| {
+        let names: Vec<String> = h
+            .app
+            .read(cx)
+            .members(&group)
+            .into_iter()
+            .map(|m| m.1)
+            .collect();
+        assert_eq!(
+            names,
+            vec!["You", "Alice Johnson", "Bob Smith", "Carol Diaz"]
+        );
     });
 }

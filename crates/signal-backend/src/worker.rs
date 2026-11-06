@@ -127,7 +127,7 @@ pub fn spawn(config: BackendConfig, events: EventSink) -> std::io::Result<Backen
 /// Results of background tasks, delivered back to the actor loop.
 enum Internal {
     LinkUrl(String),
-    Linked(Result<Mgr, String>),
+    Linked(Result<Box<Mgr>, String>),
     Received(Received),
     Connection(ConnectionState),
     SendResult {
@@ -289,10 +289,8 @@ impl Worker {
             device_name: data.device_name.clone(),
         };
         self.me = Some(info.aci);
-        if fresh_link {
-            if let Err(e) = manager.request_contacts().await {
-                tracing::warn!(%e, "failed to request contacts sync");
-            }
+        if fresh_link && let Err(e) = manager.request_contacts().await {
+            tracing::warn!(%e, "failed to request contacts sync");
         }
         self.manager = Some(manager);
         self.sync_contacts_and_groups().await;
@@ -403,7 +401,7 @@ impl Worker {
             })),
             Internal::Linked(Ok(manager)) => {
                 self.link_task = None;
-                self.on_registered(manager, true).await;
+                self.on_registered(*manager, true).await;
             }
             Internal::Linked(Err(e)) => {
                 self.link_task = None;
@@ -682,7 +680,9 @@ impl Worker {
                 Manager::link_secondary_device(store, servers, device_name, url_tx),
                 url_fwd
             );
-            let _ = tx.send(Internal::Linked(result.map_err(|e| e.to_string())));
+            let _ = tx.send(Internal::Linked(
+                result.map(Box::new).map_err(|e| e.to_string()),
+            ));
         }));
     }
 
@@ -893,10 +893,10 @@ impl Worker {
         if let Some(t) = self.link_task.take() {
             t.abort();
         }
-        if let Some(manager) = self.manager.take() {
-            if let Err(e) = manager.unlink_self().await {
-                tracing::warn!(%e, "failed to unlink on the server; wiping local data anyway");
-            }
+        if let Some(manager) = self.manager.take()
+            && let Err(e) = manager.unlink_self().await
+        {
+            tracing::warn!(%e, "failed to unlink on the server; wiping local data anyway");
         }
         if let Err(e) = self.store.clear().await {
             self.error("Failed to clear protocol store", e);

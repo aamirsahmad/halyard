@@ -2,6 +2,7 @@
 
 pub mod avatar;
 mod conversation;
+pub mod details;
 mod link;
 mod message;
 mod sidebar;

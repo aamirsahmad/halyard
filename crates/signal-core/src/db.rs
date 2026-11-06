@@ -620,17 +620,17 @@ impl Writer<'_> {
                 body,
                 edited_at,
             } => {
-                if let Some(msg) = self.message_by_key(&conversation, &author, target_sent_at)? {
-                    if !msg.deleted {
-                        self.conn.execute(
-                            "UPDATE messages SET body = ?2, edited_at = ?3 WHERE id = ?1",
-                            params![msg.id, body, edited_at],
-                        )?;
-                        changes.messages.push(self.message(msg.id)?);
-                        changes
-                            .conversations
-                            .push(self.refresh_summary(&conversation)?);
-                    }
+                if let Some(msg) = self.message_by_key(&conversation, &author, target_sent_at)?
+                    && !msg.deleted
+                {
+                    self.conn.execute(
+                        "UPDATE messages SET body = ?2, edited_at = ?3 WHERE id = ?1",
+                        params![msg.id, body, edited_at],
+                    )?;
+                    changes.messages.push(self.message(msg.id)?);
+                    changes
+                        .conversations
+                        .push(self.refresh_summary(&conversation)?);
                 }
             }
             Mutation::DeleteForEveryone {
@@ -688,10 +688,10 @@ impl Writer<'_> {
                         .collect::<rusqlite::Result<_>>()?;
                     for msg in msgs {
                         // receipts for a direct chat must come from that contact
-                        if let ConversationId::Direct(peer) = msg.conversation {
-                            if peer != from {
-                                continue;
-                            }
+                        if let ConversationId::Direct(peer) = msg.conversation
+                            && peer != from
+                        {
+                            continue;
                         }
                         let next = msg.status.advance(kind.status());
                         if next != msg.status {

@@ -94,7 +94,9 @@ impl Notifier for DesktopNotifier {
 
 impl Notifier for RecordingSink {
     fn notify(&self, title: &str, body: &str) {
-        self.notifications.borrow_mut().push((title.to_string(), body.to_string()));
+        self.notifications
+            .borrow_mut()
+            .push((title.to_string(), body.to_string()));
     }
 }
 
@@ -248,7 +250,8 @@ impl SignalApp {
     }
 
     fn window_is_active(&self, window: &Window) -> bool {
-        self.focus_override.unwrap_or_else(|| window.is_window_active())
+        self.focus_override
+            .unwrap_or_else(|| window.is_window_active())
     }
 
     pub fn state(&self) -> &ChatState {
@@ -475,11 +478,11 @@ impl SignalApp {
     }
 
     fn mark_selected_read(&mut self) {
-        if let Some(c) = self.state.selected_conversation() {
-            if c.unread_count > 0 {
-                self.commands
-                    .send(BackendCommand::MarkRead { conversation: c.id });
-            }
+        if let Some(c) = self.state.selected_conversation()
+            && c.unread_count > 0
+        {
+            self.commands
+                .send(BackendCommand::MarkRead { conversation: c.id });
         }
     }
 
@@ -734,13 +737,14 @@ impl SignalApp {
     }
 
     pub fn delete_for_everyone(&mut self, message_id: i64, cx: &mut Context<Self>) {
-        if let Some(msg) = self.state.message(message_id) {
-            if msg.outgoing && !msg.deleted {
-                self.commands.send(BackendCommand::DeleteForEveryone {
-                    conversation: msg.conversation,
-                    sent_at: msg.sent_at,
-                });
-            }
+        if let Some(msg) = self.state.message(message_id)
+            && msg.outgoing
+            && !msg.deleted
+        {
+            self.commands.send(BackendCommand::DeleteForEveryone {
+                conversation: msg.conversation,
+                sent_at: msg.sent_at,
+            });
         }
         cx.notify();
     }
@@ -822,6 +826,61 @@ impl SignalApp {
                     commands.send(BackendCommand::Unlink);
                     true
                 })
+        });
+    }
+
+    /// People in a conversation as `(uuid, display name)`, "You" first, then
+    /// by name. For a direct chat this is just the other person.
+    pub fn members(&self, id: &ConversationId) -> Vec<(Uuid, String)> {
+        let me = self.me();
+        let uuids: Vec<Uuid> = match id {
+            ConversationId::Direct(u) => vec![*u],
+            ConversationId::Group(_) => self
+                .state
+                .conversation(id)
+                .map(|c| c.members.clone())
+                .or_else(|| self.db.conversation(id).ok().flatten().map(|c| c.members))
+                .unwrap_or_default(),
+        };
+        let mut out: Vec<(Uuid, String)> = uuids
+            .into_iter()
+            .map(|u| (u, self.display_name(&u)))
+            .collect();
+        out.sort_by(|a, b| {
+            (Some(b.0) == me)
+                .cmp(&(Some(a.0) == me))
+                .then_with(|| a.1.to_lowercase().cmp(&b.1.to_lowercase()))
+        });
+        out.dedup_by_key(|m| m.0);
+        out
+    }
+
+    /// Opens the conversation details panel (group members / contact info).
+    pub fn show_details(
+        &mut self,
+        id: ConversationId,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let title = self
+            .state
+            .conversation(&id)
+            .map(|c| c.title.clone())
+            .unwrap_or_else(|| "Chat details".into());
+        let members = self.members(&id);
+        let phones: HashMap<Uuid, String> = self
+            .db
+            .contacts()
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|c| c.phone.map(|p| (c.uuid, p)))
+            .collect();
+        let me = self.me();
+        let palette = crate::theme::Palette::current(cx);
+        window.open_dialog(cx, move |dialog, _, _| {
+            crate::views::details::details_dialog(
+                dialog, &title, id, &members, &phones, me, &palette,
+            )
         });
     }
 

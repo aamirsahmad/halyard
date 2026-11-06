@@ -15,8 +15,11 @@ use crate::app::SignalApp;
 use crate::assets::Icons;
 use crate::theme::Palette;
 
-/// QR modules as rows of `(start, len)` dark runs, plus the matrix width.
-pub fn qr_runs(data: &str) -> Option<(usize, Vec<Vec<(usize, usize)>>)> {
+/// Dark modules of one QR row, as `(start, len)` runs.
+pub type QrRow = Vec<(usize, usize)>;
+
+/// QR modules as rows of dark runs, plus the matrix width.
+pub fn qr_runs(data: &str) -> Option<(usize, Vec<QrRow>)> {
     let code = qrcode::QrCode::with_error_correction_level(data, qrcode::EcLevel::M).ok()?;
     let width = code.width();
     let colors = code.to_colors();
