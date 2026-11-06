@@ -450,3 +450,29 @@ fn message_info_shows_edit_history(cx: &mut TestAppContext) {
         assert!(w.try_find("edit-history").is_some());
     });
 }
+
+#[gpui_kit::test]
+fn safety_number_request_and_dialog(cx: &mut TestAppContext) {
+    let h = setup(cx);
+    h.sink.take();
+    with_app(cx, &h, |a, _, cx| a.request_safety_number(DEMO_ALICE, cx));
+    assert_eq!(
+        h.sink.take(),
+        vec![BackendCommand::RequestSafetyNumber {
+            contact: DEMO_ALICE
+        }]
+    );
+    let number = signal_backend::demo::demo_safety_number(&DEMO_ALICE);
+    assert_eq!(number.len(), 60);
+    emit(
+        cx,
+        &h,
+        BackendEvent::SafetyNumber {
+            contact: DEMO_ALICE,
+            number: Some(number),
+        },
+    );
+    with_window(cx, &h, |w, _| {
+        assert!(w.try_find("safety-number").is_some())
+    });
+}

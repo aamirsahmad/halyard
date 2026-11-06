@@ -470,6 +470,9 @@ impl SignalApp {
                 reload_names = true;
             }
             BackendEvent::ContactsChanged => reload_names = true,
+            BackendEvent::SafetyNumber { contact, number } => {
+                self.show_safety_number(*contact, number.clone(), window, cx);
+            }
             BackendEvent::ConversationUpdated(c) if !c.is_group() => reload_names = true,
             BackendEvent::Error(e) => {
                 window.push_notification(Notification::error(e.clone()), cx);

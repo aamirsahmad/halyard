@@ -65,6 +65,11 @@ pub enum BackendCommand {
         conversation: ConversationId,
         started: bool,
     },
+    /// Compute the safety number with a contact (answered by
+    /// [`BackendEvent::SafetyNumber`]).
+    RequestSafetyNumber {
+        contact: Uuid,
+    },
     /// Whether to send read receipts (a privacy preference).
     SetReadReceipts(bool),
     /// Ask the primary device for a fresh contact list.
@@ -120,6 +125,11 @@ pub enum BackendEvent {
         started: bool,
     },
     ContactsChanged,
+    /// Safety number (60 digits) with a contact; `None` if no session yet.
+    SafetyNumber {
+        contact: Uuid,
+        number: Option<String>,
+    },
     /// A user-facing, non-fatal error.
     Error(String),
 }

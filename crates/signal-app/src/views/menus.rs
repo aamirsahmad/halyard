@@ -146,6 +146,17 @@ pub fn conversation_menu(
         })),
     );
 
+    if place == MenuPlace::Header
+        && !is_note_to_self
+        && let Some(contact) = id.direct_uuid()
+    {
+        menu = menu.item(
+            item(&app, "View safety number", move |this, _, cx| {
+                this.request_safety_number(contact, cx)
+            })
+            .icon(Icon::new(Icons::Lock)),
+        );
+    }
     if place == MenuPlace::Header && !id.is_group() && !is_note_to_self {
         let blocked = conv.blocked;
         menu = menu.item(

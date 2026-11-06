@@ -144,6 +144,65 @@ impl SignalApp {
         cx.notify();
     }
 
+    pub fn request_safety_number(&mut self, contact: uuid::Uuid, cx: &mut Context<Self>) {
+        self.commands
+            .send(BackendCommand::RequestSafetyNumber { contact });
+        cx.notify();
+    }
+
+    /// Shows a safety number answered by the backend.
+    pub fn show_safety_number(
+        &mut self,
+        contact: uuid::Uuid,
+        number: Option<String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let name = self.display_name(&contact);
+        let p = crate::theme::Palette::current(cx);
+        window.open_dialog(cx, move |dialog, _, _| {
+            use gpui_kit::{FontWeight, InteractiveElement as _, ParentElement as _, Styled as _, TestSupportExt as _, div, px};
+            let body = match &number {
+                Some(n) => {
+                    let groups = safety_number_groups(n);
+                    div()
+                        .id("safety-number")
+                        .flex()
+                        .flex_col()
+                        .gap_3()
+                        .child(
+                            div().text_size(px(13.)).text_color(p.text_secondary).child(format!(
+                                "To verify end-to-end encryption with {name}, compare these numbers with their device. \
+                                 You can also scan the code on their phone."
+                            )),
+                        )
+                        .child(
+                            div()
+                                .flex()
+                                .flex_wrap()
+                                .justify_center()
+                                .gap_x_4()
+                                .gap_y_2()
+                                .p_4()
+                                .rounded(px(12.))
+                                .bg(p.input_bg)
+                                .font_family("monospace")
+                                .text_size(px(18.))
+                                .font_weight(FontWeight::MEDIUM)
+                                .children(groups.into_iter().map(|g| div().w(px(72.)).child(g))),
+                        )
+                        .test_support()
+                }
+                None => div()
+                    .id("safety-number")
+                    .text_color(p.text_secondary)
+                    .child(format!("You haven't exchanged messages with {name} yet, so there's no safety number."))
+                    .test_support(),
+            };
+            dialog.title("Safety number").w(px(460.)).child(body)
+        });
+    }
+
     pub fn delete_for_me(&mut self, message_id: i64, cx: &mut Context<Self>) {
         self.apply_local(Mutation::DeleteForMe { message_id }, cx);
     }
@@ -186,5 +245,23 @@ impl SignalApp {
             cx,
         );
         cx.notify();
+    }
+}
+
+/// Splits a 60-digit safety number into Signal's 12 groups of 5.
+pub fn safety_number_groups(number: &str) -> Vec<String> {
+    let digits: Vec<char> = number.chars().filter(|c| c.is_ascii_digit()).collect();
+    digits.chunks(5).map(|c| c.iter().collect()).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn safety_number_grouping() {
+        let n: String = (0..60).map(|i| char::from(b'0' + (i % 10) as u8)).collect();
+        let g = super::safety_number_groups(&n);
+        assert_eq!(g.len(), 12);
+        assert!(g.iter().all(|x| x.len() == 5));
+        assert_eq!(g[0], "01234");
     }
 }

@@ -740,6 +740,24 @@ impl Worker {
             }
             BackendCommand::MarkRead { conversation } => self.mark_read(conversation),
             BackendCommand::SetReadReceipts(on) => self.read_receipts = on,
+            BackendCommand::RequestSafetyNumber { contact } => {
+                let number = match self.me {
+                    Some(me) => {
+                        use presage::libsignal_service::session_store::SessionStoreExt as _;
+                        self.store
+                            .aci_protocol_store()
+                            .compute_safety_number(
+                                &ServiceId::Aci(Aci::from(me)),
+                                &ServiceId::Aci(Aci::from(contact)),
+                            )
+                            .await
+                            .map_err(|e| tracing::info!(%e, "no safety number yet"))
+                            .ok()
+                    }
+                    None => None,
+                };
+                self.emit(BackendEvent::SafetyNumber { contact, number });
+            }
             BackendCommand::Typing {
                 conversation,
                 started,

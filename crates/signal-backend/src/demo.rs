@@ -253,6 +253,19 @@ pub fn demo_account() -> AccountInfo {
     }
 }
 
+/// A stable, fake 60-digit safety number for demo contacts.
+pub fn demo_safety_number(contact: &Uuid) -> String {
+    let mut digits = String::with_capacity(60);
+    let mut x = contact.as_u128() ^ DEMO_ME.as_u128();
+    while digits.len() < 60 {
+        x = x
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
+        digits.push(char::from(b'0' + ((x >> 64) % 10) as u8));
+    }
+    digits
+}
+
 /// Starts the demo backend using the database at `db_path`.
 pub fn spawn_demo(
     db_path: std::path::PathBuf,
@@ -503,6 +516,13 @@ fn demo_reaction(
             events(BackendEvent::Error(
                 "Unlinking is not available in demo mode".into(),
             ));
+            vec![]
+        }
+        BackendCommand::RequestSafetyNumber { contact } => {
+            events(BackendEvent::SafetyNumber {
+                contact,
+                number: Some(demo_safety_number(&contact)),
+            });
             vec![]
         }
         BackendCommand::Link { .. }
