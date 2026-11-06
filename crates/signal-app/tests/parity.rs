@@ -512,9 +512,7 @@ fn audio_attachment_play_button(cx: &mut TestAppContext) {
     wav.extend_from_slice(b"RIFF");
     wav.extend_from_slice(&(36 + samples * 2).to_le_bytes());
     wav.extend_from_slice(b"WAVEfmt ");
-    for v in [16u32] {
-        wav.extend_from_slice(&v.to_le_bytes());
-    }
+    wav.extend_from_slice(&16u32.to_le_bytes());
     for v in [1u16, 1] {
         wav.extend_from_slice(&v.to_le_bytes());
     }
