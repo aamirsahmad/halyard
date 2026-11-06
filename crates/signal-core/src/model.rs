@@ -314,7 +314,7 @@ pub fn timer_label(secs: u32) -> String {
         (1, "second", "seconds"),
     ];
     for (unit, one, many) in UNITS {
-        if secs >= unit && secs % unit == 0 {
+        if secs >= unit && secs.is_multiple_of(unit) {
             let n = secs / unit;
             return format!("{n} {}", if n == 1 { one } else { many });
         }

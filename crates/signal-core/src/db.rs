@@ -332,6 +332,29 @@ impl Database {
         Ok(out)
     }
 
+    /// Search within one conversation, newest first.
+    pub fn search_in_conversation(
+        &self,
+        conversation: &ConversationId,
+        query: &str,
+        limit: usize,
+    ) -> Result<Vec<Message>> {
+        let query = query.trim();
+        if query.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT {MESSAGE_COLUMNS} FROM messages \
+             WHERE conversation_id = ?1 AND deleted = 0 AND body LIKE ?2 ESCAPE '\\' \
+             ORDER BY sent_at DESC LIMIT ?3"
+        ))?;
+        let rows = stmt.query_map(
+            params![conversation.to_string(), like_pattern(query), limit as i64],
+            message_from_row,
+        )?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
     /// Case-insensitive substring search over message bodies, newest first.
     pub fn search_messages(&self, query: &str, limit: usize) -> Result<Vec<Message>> {
         let query = query.trim();
@@ -594,7 +617,7 @@ impl Writer<'_> {
             |r| r.get(0),
         )?;
         let (activity, preview, outgoing) = match &last {
-            Some(m) => (m.sent_at, m.preview(), m.outgoing),
+            Some(m) => (m.sent_at, self.preview_of(m)?, m.outgoing),
             None => (0, String::new(), false),
         };
         self.conn.execute(
@@ -984,6 +1007,29 @@ impl Writer<'_> {
             }
         }
         Ok(changes)
+    }
+
+    /// List preview of a message with author and mention names resolved.
+    fn preview_of(&self, m: &Message) -> Result<String> {
+        if let MessageKind::TimerChanged { secs } = &m.kind {
+            let who = if m.outgoing {
+                None
+            } else {
+                Some(self.contact_name(&m.author)?)
+            };
+            return Ok(crate::model::timer_notice(who.as_deref(), *secs));
+        }
+        if m.deleted || m.body_ranges.is_empty() {
+            return Ok(m.preview());
+        }
+        let rich = crate::richtext::layout(&m.body, &m.body_ranges, |u| {
+            self.contact_name(u)
+                .unwrap_or_else(|_| "Unknown contact".into())
+        });
+        let mut resolved = m.clone();
+        resolved.body = rich.text;
+        resolved.body_ranges.clear();
+        Ok(resolved.preview())
     }
 
     /// Local paths of a message's attachments.

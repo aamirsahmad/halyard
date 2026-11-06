@@ -796,6 +796,13 @@ fn edits_keep_history() {
 fn body_ranges_roundtrip() {
     use crate::model::{BodyRange, RangeKind};
     let mut db = db();
+    db.apply(Mutation::UpsertContact(Contact {
+        uuid: BOB,
+        name: Some("Bob".into()),
+        profile_name: None,
+        phone: None,
+    }))
+    .unwrap();
     let mut m = NewMessage::text(alice(), ALICE, 1, false, "hi \u{FFFC} bold");
     m.body_ranges = vec![
         BodyRange {
@@ -811,5 +818,52 @@ fn body_ranges_roundtrip() {
     ];
     let ch = db.apply(Mutation::InsertMessage(m.clone())).unwrap();
     assert_eq!(ch.messages[0].body_ranges, m.body_ranges);
-    assert_eq!(ch.conversations[0].last_preview, "hi @ bold");
+    assert_eq!(ch.conversations[0].last_preview, "hi @Bob bold");
+}
+
+#[test]
+fn search_within_a_conversation() {
+    let mut db = db();
+    db.apply(incoming(alice(), ALICE, 1, "coffee at ten"))
+        .unwrap();
+    db.apply(incoming(
+        ConversationId::Direct(BOB),
+        BOB,
+        2,
+        "coffee later?",
+    ))
+    .unwrap();
+    let found = db.search_in_conversation(&alice(), "COFFEE", 10).unwrap();
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].body, "coffee at ten");
+    assert!(
+        db.search_in_conversation(&alice(), " ", 10)
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[test]
+fn timer_notice_preview_names_the_author() {
+    let mut db = db();
+    db.apply(Mutation::UpsertContact(Contact {
+        uuid: ALICE,
+        name: Some("Alice".into()),
+        profile_name: None,
+        phone: None,
+    }))
+    .unwrap();
+    let ch = db
+        .apply(Mutation::SetExpireTimer {
+            conversation: alice(),
+            secs: Some(86_400),
+            author: ALICE,
+            outgoing: false,
+            at: 5,
+        })
+        .unwrap();
+    assert_eq!(
+        ch.conversations[0].last_preview,
+        "Alice set the disappearing message timer to 1 day."
+    );
 }

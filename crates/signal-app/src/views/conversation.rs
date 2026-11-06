@@ -41,6 +41,7 @@ impl SignalApp {
             .h_full()
             .bg(p.background)
             .child(self.render_header(&conv, p, cx))
+            .children(self.render_conversation_search(p, cx))
             .child(self.render_timeline(p, window, cx))
             .children(self.render_typing(&conv, p))
             .drag_over::<ExternalPaths>(move |style, _, _, _| style.bg(drop_bg))
@@ -113,26 +114,34 @@ impl SignalApp {
                             .min_w_0()
                             .child(
                                 div()
-                                    .id("conversation-title")
-                                    .truncate()
-                                    .font_weight(FontWeight::SEMIBOLD)
-                                    .child(conv.title.clone())
-                                    .test_support(),
+                                    .flex()
+                                    .items_center()
+                                    .gap_2()
+                                    .min_w_0()
+                                    .child(
+                                        div()
+                                            .id("conversation-title")
+                                            .truncate()
+                                            .font_weight(FontWeight::SEMIBOLD)
+                                            .child(conv.title.clone())
+                                            .test_support(),
+                                    )
+                                    .when_some(conv.expire_timer, |d, secs| {
+                                        d.child(
+                                            div()
+                                                .id("header-timer")
+                                                .flex()
+                                                .flex_none()
+                                                .items_center()
+                                                .gap_1()
+                                                .text_size(px(12.))
+                                                .text_color(p.text_secondary)
+                                                .child(Icon::new(Icons::Clock).xsmall())
+                                                .child(signal_core::timer_label(secs))
+                                                .test_support(),
+                                        )
+                                    }),
                             )
-                            .when_some(conv.expire_timer, |d, secs| {
-                                d.child(
-                                    div()
-                                        .id("header-timer")
-                                        .flex()
-                                        .items_center()
-                                        .gap_1()
-                                        .text_size(px(12.))
-                                        .text_color(p.text_secondary)
-                                        .child(Icon::new(Icons::Clock).xsmall())
-                                        .child(signal_core::timer_label(secs))
-                                        .test_support(),
-                                )
-                            })
                             .when(!subtitle.is_empty(), |d| {
                                 d.child(
                                     div()
@@ -143,6 +152,16 @@ impl SignalApp {
                             }),
                     )
                     .test_support(),
+            )
+            .child(
+                Button::new("conversation-search")
+                    .ghost()
+                    .small()
+                    .icon(IconName::Search)
+                    .tooltip("Search in chat")
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.toggle_conversation_search(window, cx)
+                    })),
             )
             .child(
                 Button::new("conversation-menu")
@@ -207,6 +226,110 @@ impl SignalApp {
             )
             .test_support()
             .into_any_element()
+    }
+
+    fn render_conversation_search(
+        &self,
+        p: &Palette,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
+        if !self.conv_search_open {
+            return None;
+        }
+        let query_len = self.conv_search.read(cx).value().trim().chars().count();
+        let results: Vec<AnyElement> = self
+            .conv_search_results
+            .iter()
+            .map(|m| {
+                let msg = m.clone();
+                let who = if m.outgoing {
+                    "You".to_string()
+                } else {
+                    self.display_name(&m.author)
+                };
+                div()
+                    .id(ElementId::Name(format!("search-result-{}", m.id).into()))
+                    .flex()
+                    .flex_col()
+                    .px_3()
+                    .py_2()
+                    .rounded(px(8.))
+                    .cursor_pointer()
+                    .hover(|s| s.bg(p.hover))
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.jump_to_result(msg.clone(), window, cx)
+                    }))
+                    .child(
+                        div()
+                            .flex()
+                            .justify_between()
+                            .text_size(px(12.))
+                            .text_color(p.text_secondary)
+                            .child(who)
+                            .child(signal_core::format::conversation_list_time(
+                                m.sent_at,
+                                signal_core::now_millis(),
+                            )),
+                    )
+                    .child(div().truncate().text_size(px(13.)).child(m.preview()))
+                    .test_support()
+                    .into_any_element()
+            })
+            .collect();
+        let empty = results.is_empty() && query_len >= 2;
+        Some(
+            div()
+                .id("conversation-search-bar")
+                .flex()
+                .flex_col()
+                .flex_none()
+                .gap_2()
+                .px_4()
+                .py_2()
+                .border_b_1()
+                .border_color(p.border)
+                .child(
+                    div()
+                        .flex()
+                        .gap_2()
+                        .items_center()
+                        .child(
+                            div().flex_1().child(
+                                gpui_kit::component::input::Input::new(&self.conv_search)
+                                    .id("conversation-search-input")
+                                    .small(),
+                            ),
+                        )
+                        .child(
+                            Button::new("conversation-search-close")
+                                .ghost()
+                                .small()
+                                .label("Done")
+                                .on_click(cx.listener(|this, _, window, cx| {
+                                    this.toggle_conversation_search(window, cx)
+                                })),
+                        ),
+                )
+                .when(!results.is_empty(), |d| {
+                    d.child(
+                        div()
+                            .id("conversation-search-results")
+                            .max_h(px(260.))
+                            .overflow_y_scroll()
+                            .children(results),
+                    )
+                })
+                .when(empty, |d| {
+                    d.child(
+                        div()
+                            .text_size(px(13.))
+                            .text_color(p.text_secondary)
+                            .child("No results"),
+                    )
+                })
+                .test_support()
+                .into_any_element(),
+        )
     }
 
     /// Shown instead of the composer for message requests and blocked chats.

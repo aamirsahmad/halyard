@@ -19,6 +19,7 @@ pub const DEMO_ALICE: Uuid = Uuid::from_u128(0x5157_0000_0000_0000_0000_0000_000
 pub const DEMO_BOB: Uuid = Uuid::from_u128(0x5157_0000_0000_0000_0000_0000_0000_00b0);
 pub const DEMO_CAROL: Uuid = Uuid::from_u128(0x5157_0000_0000_0000_0000_0000_0000_00c0);
 pub const DEMO_DAVE: Uuid = Uuid::from_u128(0x5157_0000_0000_0000_0000_0000_0000_00d0);
+pub const DEMO_STRANGER: Uuid = Uuid::from_u128(0x5157_0000_0000_0000_0000_0000_0000_00e0);
 pub const DEMO_GROUP: GroupKey = GroupKey([0x42; 32]);
 
 /// Sample data. Applied only when the database has no conversations.
@@ -31,6 +32,7 @@ pub fn seed(db: &mut Database, now: Millis) -> signal_core::db::Result<()> {
         (DEMO_BOB, "Bob Smith", "+1 555 0102"),
         (DEMO_CAROL, "Carol Diaz", "+1 555 0103"),
         (DEMO_DAVE, "Dave", "+1 555 0104"),
+        (DEMO_ME, "Sam Taylor", "+1 555 0100"),
     ];
     for (uuid, name, phone) in contacts {
         db.apply(Mutation::UpsertContact(Contact {
@@ -185,6 +187,59 @@ pub fn seed(db: &mut Database, now: Millis) -> signal_core::db::Result<()> {
         remove: false,
         at: now - day - 69 * min,
     })?;
+    // formatting, a mention and a link, like Signal's rich messages
+    let mut formatted = NewMessage::text(
+        carol,
+        DEMO_CAROL,
+        now - 2 * day + 3 * min,
+        false,
+        "It's the *best* soup: https://example.com/recipes/tomato-basil",
+    );
+    formatted.read = true;
+    formatted.body_ranges = vec![
+        signal_core::BodyRange {
+            start: 9,
+            length: 4,
+            kind: signal_core::RangeKind::Bold,
+        },
+        signal_core::BodyRange {
+            start: 5,
+            length: 3,
+            kind: signal_core::RangeKind::Italic,
+        },
+    ];
+    formatted.body = "It's the best soup: https://example.com/recipes/tomato-basil".into();
+    db.apply(Mutation::InsertMessage(formatted))?;
+    let mut mention = NewMessage::text(
+        group,
+        DEMO_CAROL,
+        now - 48 * min,
+        false,
+        "\u{FFFC} can you bring the map?",
+    );
+    mention.body_ranges = vec![signal_core::BodyRange {
+        start: 0,
+        length: 1,
+        kind: signal_core::RangeKind::Mention(DEMO_ME),
+    }];
+    db.apply(Mutation::InsertMessage(mention))?;
+    // a disappearing-messages notice in Bob's chat
+    db.apply(Mutation::SetExpireTimer {
+        conversation: bob,
+        secs: Some(7 * 86_400),
+        author: DEMO_BOB,
+        outgoing: false,
+        at: now - 3 * day + 10 * min,
+    })?;
+    // a message request from someone not in your contacts
+    let stranger = ConversationId::Direct(DEMO_STRANGER);
+    db.apply(Mutation::InsertMessage(NewMessage::text(
+        stranger,
+        DEMO_STRANGER,
+        now - 5 * min,
+        false,
+        "Hi! We met at the conference — is this the right number?",
+    )))?;
     db.set_pinned(&group, true)?;
     Ok(())
 }
@@ -468,7 +523,7 @@ mod tests {
         let mut db = Database::open_in_memory().unwrap();
         seed(&mut db, 1_000_000_000_000).unwrap();
         let n = db.all_conversations().unwrap().len();
-        assert_eq!(n, 6); // 4 contacts + 1 group + Note to Self
+        assert_eq!(n, 7); // 4 contacts + group + Note to Self + a message request
         seed(&mut db, 1_000_000_000_000).unwrap();
         assert_eq!(db.all_conversations().unwrap().len(), n);
         let list = db.conversations().unwrap();
@@ -477,7 +532,7 @@ mod tests {
             ConversationId::Group(DEMO_GROUP),
             "pinned first"
         );
-        assert_eq!(list[0].unread_count, 2);
+        assert_eq!(list[0].unread_count, 3);
     }
 
     #[test]

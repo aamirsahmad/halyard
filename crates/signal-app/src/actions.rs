@@ -4,7 +4,16 @@ use gpui_kit::{App, KeyBinding};
 
 gpui_kit::actions!(
     signal,
-    [NewChat, FocusSearch, NextChat, PrevChat, CloseChat, Quit]
+    [
+        NewChat,
+        FocusSearch,
+        NextChat,
+        PrevChat,
+        CloseChat,
+        OpenPreferences,
+        ShowShortcuts,
+        Quit
+    ]
 );
 
 /// Shortcuts using the platform's primary modifier: ⌘ on macOS, Ctrl elsewhere.
@@ -13,12 +22,16 @@ mod keys {
     pub const NEW_CHAT: &str = "cmd-n";
     pub const FIND: &str = "cmd-f";
     pub const QUIT: &str = "cmd-q";
+    pub const PREFS: &str = "cmd-,";
+    pub const SHORTCUTS: &str = "cmd-/";
 }
 #[cfg(not(target_os = "macos"))]
 mod keys {
     pub const NEW_CHAT: &str = "ctrl-n";
     pub const FIND: &str = "ctrl-f";
     pub const QUIT: &str = "ctrl-q";
+    pub const PREFS: &str = "ctrl-,";
+    pub const SHORTCUTS: &str = "ctrl-/";
 }
 
 pub fn bind_keys(cx: &mut App) {
@@ -30,6 +43,8 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("ctrl-tab", NextChat, Some("SignalApp")),
         KeyBinding::new("ctrl-shift-tab", PrevChat, Some("SignalApp")),
         KeyBinding::new("escape", CloseChat, Some("SignalApp")),
+        KeyBinding::new(keys::PREFS, OpenPreferences, Some("SignalApp")),
+        KeyBinding::new(keys::SHORTCUTS, ShowShortcuts, Some("SignalApp")),
         KeyBinding::new(keys::QUIT, Quit, None),
     ]);
     cx.on_action(|_: &Quit, cx| cx.quit());

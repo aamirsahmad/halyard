@@ -235,7 +235,7 @@ fn render_message(
             );
         }
         for (i, a) in m.attachments.iter().enumerate() {
-            bubble = bubble.child(render_attachment(data, id, i, a, fg, meta));
+            bubble = bubble.child(render_attachment(data, &app, id, i, a, fg, meta));
         }
         if !m.body.is_empty() {
             bubble = bubble.child(crate::views::rich_text::render_body(
@@ -491,6 +491,7 @@ fn status_icon(status: MessageStatus, color: gpui_kit::Hsla) -> AnyElement {
 
 fn render_attachment(
     data: &TimelineData,
+    app: &WeakEntity<SignalApp>,
     msg_id: i64,
     index: usize,
     a: &Attachment,
@@ -511,6 +512,17 @@ fn render_attachment(
             ))
             .rounded(px(12.))
             .overflow_hidden()
+            .cursor_pointer()
+            .on_click({
+                let app = app.clone();
+                let (path, ct, name) = (path.clone(), a.content_type.clone(), a.display_name());
+                move |_, window, cx| {
+                    let (path, ct, name) = (path.clone(), ct.clone(), name.clone());
+                    let _ = app.update(cx, |this, cx| {
+                        this.open_lightbox(path, ct, name, window, cx)
+                    });
+                }
+            })
             .child(
                 match data.attachments.image(path, &a.content_type) {
                     Some(image) => img(image),

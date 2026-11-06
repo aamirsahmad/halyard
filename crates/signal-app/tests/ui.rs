@@ -12,7 +12,8 @@ use signal_app::app::ListMode;
 use signal_app::views::conversation_dom_id;
 use signal_app::{RecordingSink, SignalApp};
 use signal_backend::demo::{
-    DEMO_ALICE, DEMO_BOB, DEMO_CAROL, DEMO_DAVE, DEMO_GROUP, DEMO_ME, demo_account, seed,
+    DEMO_ALICE, DEMO_BOB, DEMO_CAROL, DEMO_DAVE, DEMO_GROUP, DEMO_ME, DEMO_STRANGER, demo_account,
+    seed,
 };
 use signal_core::{
     AccountState, BackendCommand, BackendEvent, ConversationId, Database, Message, MessageKind,
@@ -329,7 +330,7 @@ fn incoming_messages_update_list_and_notify_when_inactive(cx: &mut TestAppContex
             window.find(group.clone()).bounds().top() < window.find(bob.clone()).bounds().top()
         );
     });
-    cx.update(|cx| assert_eq!(h.app.read(cx).state().total_unread(), 4));
+    cx.update(|cx| assert_eq!(h.app.read(cx).state().total_unread(), 6));
     assert_eq!(
         h.sink.take_notifications(),
         vec![("Bob Smith".to_string(), "new!".to_string())]
@@ -471,7 +472,12 @@ fn keyboard_navigation_between_chats(cx: &mut TestAppContext) {
     with_window(cx, &h, |window, cx| {
         app.update(cx, |app, cx| app.select_relative(1, window, cx))
     });
-    cx.update(|cx| assert_eq!(h.app.read(cx).state().selected(), Some(&alice())));
+    cx.update(|cx| {
+        assert_eq!(
+            h.app.read(cx).state().selected(),
+            Some(&ConversationId::Direct(DEMO_STRANGER))
+        )
+    });
     with_window(cx, &h, |window, cx| {
         app.update(cx, |app, cx| app.select_relative(-5, window, cx))
     });

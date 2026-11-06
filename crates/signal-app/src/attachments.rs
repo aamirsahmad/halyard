@@ -64,6 +64,11 @@ impl AttachmentAccess {
         image
     }
 
+    /// Writes a decrypted copy of an attachment to `dest` (Save As).
+    pub fn export_to(&self, path: &str, dest: &Path) -> std::io::Result<()> {
+        std::fs::write(dest, self.read(Path::new(path))?)
+    }
+
     /// Deletes an attachment file if (and only if) it lives in our store.
     pub fn remove_stored_file(&self, path: &str) {
         if let Some(store) = &self.store

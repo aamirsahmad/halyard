@@ -39,7 +39,10 @@ mod rendering {
         + 'static,
     ) -> image::RgbaImage {
         let mut cx = context();
-        cx.update(|cx| Theme::change(mode, None, cx));
+        cx.update(|cx| {
+            Theme::change(mode, None, cx);
+            signal_app::theme::apply_signal_accent(cx);
+        });
         let dir = tempfile::tempdir().unwrap();
         let mut db = Database::open(dir.path().join("m.db"), None).unwrap();
         seed(&mut db, now_millis()).unwrap();
@@ -125,6 +128,35 @@ mod rendering {
                 window,
                 cx,
             );
+        });
+        let _rich = capture("formatting", ThemeMode::Light, |app, window, cx| {
+            registered(app, window, cx);
+            app.open_conversation(
+                ConversationId::Direct(signal_backend::demo::DEMO_CAROL),
+                window,
+                cx,
+            );
+        });
+        let _timer = capture("timer-notice", ThemeMode::Dark, |app, window, cx| {
+            app.set_appearance(signal_app::theme::Appearance::Dark, window, cx);
+            registered(app, window, cx);
+            app.open_conversation(
+                ConversationId::Direct(signal_backend::demo::DEMO_BOB),
+                window,
+                cx,
+            );
+        });
+        let _request = capture("message-request", ThemeMode::Light, |app, window, cx| {
+            registered(app, window, cx);
+            app.open_conversation(
+                ConversationId::Direct(signal_backend::demo::DEMO_STRANGER),
+                window,
+                cx,
+            );
+        });
+        let _prefs = capture("preferences", ThemeMode::Light, |app, window, cx| {
+            registered(app, window, cx);
+            app.open_preferences(window, cx);
         });
         let _members = capture("group-members", ThemeMode::Light, |app, window, cx| {
             registered(app, window, cx);

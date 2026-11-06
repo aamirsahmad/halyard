@@ -4,10 +4,12 @@ pub mod avatar;
 mod conversation;
 pub mod details;
 pub mod emoji_picker;
+mod lightbox;
 mod link;
 pub mod menus;
 mod message;
 pub mod message_menu;
+pub mod preferences;
 pub mod rich_text;
 mod sidebar;
 
@@ -19,7 +21,9 @@ use gpui_kit::{
 };
 use signal_core::AccountState;
 
-use crate::actions::{CloseChat, FocusSearch, NewChat, NextChat, PrevChat};
+use crate::actions::{
+    CloseChat, FocusSearch, NewChat, NextChat, OpenPreferences, PrevChat, ShowShortcuts,
+};
 use crate::app::{ListMode, SignalApp};
 use crate::theme::Palette;
 
@@ -51,6 +55,12 @@ impl Render for SignalApp {
                 )
                 .on_action(cx.listener(|this, _: &PrevChat, window, cx| {
                     this.select_relative(-1, window, cx)
+                }))
+                .on_action(cx.listener(|this, _: &OpenPreferences, window, cx| {
+                    this.open_preferences(window, cx)
+                }))
+                .on_action(cx.listener(|this, _: &ShowShortcuts, window, cx| {
+                    this.open_shortcuts(window, cx)
                 }))
                 .on_action(cx.listener(|this, _: &CloseChat, window, cx| {
                     if this.editing.is_some() {

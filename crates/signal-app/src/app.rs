@@ -140,6 +140,9 @@ pub struct SignalApp {
     pub(crate) timeline: Rc<TimelineData>,
     pub(crate) replying_to: Option<Message>,
     pub(crate) editing: Option<Message>,
+    pub(crate) conv_search: Entity<InputState>,
+    pub(crate) conv_search_open: bool,
+    pub(crate) conv_search_results: Vec<Message>,
     /// First unread message (id, count) when the chat was opened.
     pub(crate) unread_anchor: Option<(i64, usize)>,
     pub(crate) pending_attachments: Vec<PathBuf>,
@@ -169,6 +172,7 @@ impl SignalApp {
         cx: &mut Context<Self>,
     ) -> Self {
         let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search"));
+        let conv_search = cx.new(|cx| InputState::new(window, cx).placeholder("Search in chat"));
         let composer = cx.new(|cx| {
             TextareaState::new(window, cx)
                 .auto_grow(1, 8)
@@ -225,6 +229,23 @@ impl SignalApp {
                 }
             }),
             cx.subscribe_in(
+                &conv_search,
+                window,
+                |this, state, ev: &InputEvent, _, cx| {
+                    if matches!(ev, InputEvent::Change) {
+                        let q = state.read(cx).value().to_string();
+                        this.conv_search_results = match this.state.selected() {
+                            Some(id) if q.trim().chars().count() >= 2 => this
+                                .db
+                                .search_in_conversation(id, &q, 50)
+                                .unwrap_or_default(),
+                            _ => Vec::new(),
+                        };
+                        cx.notify();
+                    }
+                },
+            ),
+            cx.subscribe_in(
                 &composer,
                 window,
                 |this, _, ev: &InputEvent, window, cx| match ev {
@@ -273,6 +294,9 @@ impl SignalApp {
             }),
             replying_to: None,
             editing: None,
+            conv_search,
+            conv_search_open: false,
+            conv_search_results: Vec::new(),
             unread_anchor: None,
             pending_attachments: Vec::new(),
             list_mode: ListMode::Chats,
@@ -330,6 +354,11 @@ impl SignalApp {
 
     pub fn composer(&self) -> &Entity<TextareaState> {
         &self.composer
+    }
+
+    /// Ids of the current in-conversation search results.
+    pub fn conv_search_result_ids(&self) -> Vec<i64> {
+        self.conv_search_results.iter().map(|m| m.id).collect()
     }
 
     pub fn editing(&self) -> Option<&Message> {
@@ -534,6 +563,8 @@ impl SignalApp {
             .map(|m| m.id);
         self.unread_anchor = first_unread.map(|id| (id, unread as usize));
         self.state.open(conv, messages, has_more);
+        self.conv_search_open = false;
+        self.conv_search_results.clear();
         self.replying_to = None;
         self.editing = None;
         self.pending_attachments.clear();
@@ -553,7 +584,33 @@ impl SignalApp {
         cx.notify();
     }
 
+    pub fn toggle_conversation_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.conv_search_open = !self.conv_search_open;
+        self.conv_search_results.clear();
+        self.conv_search
+            .update(cx, |s, cx| s.set_value("", window, cx));
+        if self.conv_search_open {
+            self.conv_search.read(cx).focus_handle(cx).focus(window, cx);
+        }
+        cx.notify();
+    }
+
+    /// Jumps to a search result and closes the search bar.
+    pub fn jump_to_result(
+        &mut self,
+        message: Message,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.conv_search_open = false;
+        self.conv_search_results.clear();
+        self.scroll_to_message(message.author, message.sent_at, window, cx);
+        cx.notify();
+    }
+
     pub fn close_conversation(&mut self, cx: &mut Context<Self>) {
+        self.conv_search_open = false;
+        self.conv_search_results.clear();
         self.unread_anchor = None;
         self.save_draft(cx);
         self.stop_typing();

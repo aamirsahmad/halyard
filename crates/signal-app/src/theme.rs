@@ -152,6 +152,19 @@ pub fn apply_appearance(
         Appearance::Light => Theme::change(ThemeMode::Light, window, cx),
         Appearance::Dark => Theme::change(ThemeMode::Dark, window, cx),
     }
+    apply_signal_accent(cx);
+}
+
+/// Uses Signal's ultramarine for primary buttons, focus rings and links.
+pub fn apply_signal_accent(cx: &mut App) {
+    let accent: Hsla = rgb(ULTRAMARINE).into();
+    let theme = Theme::global_mut(cx);
+    theme.primary = accent;
+    theme.primary_hover = accent.opacity(0.9);
+    theme.primary_active = accent.opacity(0.8);
+    theme.primary_foreground = rgb(0xFFFFFF).into();
+    theme.ring = accent;
+    theme.link = accent;
 }
 
 /// Converts a 0xRRGGBB value to a colour.

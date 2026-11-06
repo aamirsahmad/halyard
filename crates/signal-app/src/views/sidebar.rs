@@ -63,7 +63,16 @@ impl SignalApp {
             })
             .when(self.list_mode == ListMode::Chats, |d| {
                 d.when_some(me, |d, me| {
-                    d.child(Avatar::new(me.as_bytes().to_vec(), "You").size(px(28.)))
+                    d.child(
+                        div()
+                            .id("my-avatar")
+                            .cursor_pointer()
+                            .on_click(
+                                cx.listener(|this, _, window, cx| this.open_profile(window, cx)),
+                            )
+                            .child(Avatar::new(me.as_bytes().to_vec(), "You").size(px(28.)))
+                            .test_support(),
+                    )
                 })
             })
             .child(
@@ -140,7 +149,11 @@ impl SignalApp {
                         let _ = e.update(cx, |this, cx| this.set_appearance(a, window, cx));
                     })
                 };
-                menu.item(item("Archived chats", |this, window, cx| this.set_list_mode(ListMode::Archived, window, cx)))
+                menu.item(item("Profile", |this, window, cx| this.open_profile(window, cx)))
+                    .item(item("Preferences…", |this, window, cx| this.open_preferences(window, cx)))
+                    .item(item("Keyboard shortcuts", |this, window, cx| this.open_shortcuts(window, cx)))
+                    .separator()
+                    .item(item("Archived chats", |this, window, cx| this.set_list_mode(ListMode::Archived, window, cx)))
                     .item(item("Sync contacts", |this, _, cx| {
                         this.commands.send(signal_core::BackendCommand::SyncContacts);
                         cx.notify();
