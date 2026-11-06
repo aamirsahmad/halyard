@@ -69,6 +69,8 @@ pub fn attachment_from_pointer(p: &AttachmentPointer) -> Attachment {
         width: p.width.filter(|w| *w > 0),
         height: p.height.filter(|h| *h > 0),
         pointer: Some(p.encode_to_vec()),
+        view_once: false,
+        viewed: false,
     }
 }
 
@@ -207,6 +209,11 @@ fn data_message(
         } else {
             format!("{body}\n{card}")
         };
+    }
+    if dm.is_view_once == Some(true) {
+        for a in &mut attachments {
+            a.view_once = true;
+        }
     }
     let unsupported = dm.poll_create.is_some() || dm.payment.is_some() || dm.gift_badge.is_some();
     if body.trim().is_empty() && attachments.is_empty() {
@@ -995,6 +1002,20 @@ mod tests {
             };
             assert_eq!(body_range_from_proto(&body_range_to_proto(&r)), Some(r));
         }
+    }
+
+    #[test]
+    fn view_once_flag() {
+        let mut dm = text(1, "");
+        dm.is_view_once = Some(true);
+        dm.attachments.push(AttachmentPointer {
+            content_type: Some("image/jpeg".into()),
+            ..Default::default()
+        });
+        let Mutation::InsertMessage(m) = only_mutation(run(&content(ALICE, dm))) else {
+            panic!()
+        };
+        assert!(m.attachments[0].view_once && !m.attachments[0].viewed);
     }
 
     #[test]

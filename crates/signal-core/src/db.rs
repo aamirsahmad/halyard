@@ -1021,6 +1021,23 @@ impl Writer<'_> {
                 )?;
                 changes.stories_changed = n == 1;
             }
+            Mutation::ViewOnceOpened { message_id } => {
+                if let Ok(mut msg) = self.message(message_id)
+                    && msg.attachments.iter().any(|a| a.view_once && !a.viewed)
+                {
+                    for a in msg.attachments.iter_mut().filter(|a| a.view_once) {
+                        if let Some(p) = a.local_path.take() {
+                            changes.removed_files.push(p);
+                        }
+                        a.viewed = true;
+                    }
+                    self.conn.execute(
+                        "UPDATE messages SET attachments = ?2 WHERE id = ?1",
+                        params![message_id, serde_json::to_string(&msg.attachments)?],
+                    )?;
+                    changes.messages.push(self.message(message_id)?);
+                }
+            }
             Mutation::SetAvatar { conversation, path } => {
                 self.ensure_conversation(&conversation)?;
                 let old: Option<String> = self.conn.query_row(

@@ -69,6 +69,12 @@ pub struct Attachment {
     /// Opaque, serialized pointer used to (re)download the attachment.
     #[serde(default)]
     pub pointer: Option<Vec<u8>>,
+    /// View-once media: can be opened a single time.
+    #[serde(default)]
+    pub view_once: bool,
+    /// A view-once attachment that has been opened (and deleted locally).
+    #[serde(default)]
+    pub viewed: bool,
 }
 
 impl Attachment {
@@ -227,6 +233,7 @@ impl Message {
             return body.lines().next().unwrap_or_default().to_string();
         }
         match self.attachments.first() {
+            Some(a) if a.view_once => "📷 View-once media".into(),
             Some(a) if a.is_image() => "📷 Photo".into(),
             Some(a) if a.content_type.starts_with("video/") => "🎥 Video".into(),
             Some(a) if a.content_type.starts_with("audio/") => "🎤 Voice message".into(),

@@ -434,6 +434,8 @@ fn attachments_and_quotes_roundtrip() {
         width: Some(10),
         height: Some(20),
         pointer: Some(vec![1, 2, 3]),
+        view_once: false,
+        viewed: false,
     };
     let quote = Quote {
         author: ALICE,
@@ -982,4 +984,33 @@ fn avatars_and_about() {
         })
         .unwrap();
     assert_eq!(ch.conversations[0].about, None);
+}
+
+#[test]
+fn view_once_opened_deletes_media() {
+    let mut db = db();
+    let ch = db
+        .apply(Mutation::InsertMessage(NewMessage {
+            attachments: vec![Attachment {
+                content_type: "image/jpeg".into(),
+                local_path: Some("/store/vo.sga".into()),
+                view_once: true,
+                ..Default::default()
+            }],
+            ..NewMessage::text(alice(), ALICE, 5, false, "")
+        }))
+        .unwrap();
+    let id = ch.messages[0].id;
+    let ch = db
+        .apply(Mutation::ViewOnceOpened { message_id: id })
+        .unwrap();
+    let a = &ch.messages[0].attachments[0];
+    assert!(a.viewed && a.local_path.is_none());
+    assert_eq!(ch.removed_files, vec!["/store/vo.sga".to_string()]);
+    // opening again changes nothing
+    assert!(
+        db.apply(Mutation::ViewOnceOpened { message_id: id })
+            .unwrap()
+            .is_empty()
+    );
 }

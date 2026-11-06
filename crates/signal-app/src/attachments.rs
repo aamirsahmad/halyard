@@ -84,6 +84,11 @@ impl AttachmentAccess {
         std::fs::write(dest, self.read(Path::new(path))?)
     }
 
+    /// Drops a decoded image from the cache.
+    pub fn forget_image(&self, path: &str) {
+        self.images.borrow_mut().remove(path);
+    }
+
     /// Deletes an attachment file if (and only if) it lives in our store.
     pub fn remove_stored_file(&self, path: &str) {
         if let Some(store) = &self.store

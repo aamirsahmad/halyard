@@ -554,6 +554,43 @@ fn render_attachment(
     fg: gpui_kit::Hsla,
     meta: gpui_kit::Hsla,
 ) -> AnyElement {
+    if a.view_once {
+        let openable = !a.viewed && a.local_path.is_some();
+        let label = if a.viewed {
+            "Viewed"
+        } else if a.local_path.is_none() {
+            "View-once media · downloading…"
+        } else if a.is_image() {
+            "View photo"
+        } else {
+            "View video"
+        };
+        let app = app.clone();
+        return div()
+            .id(ElementId::Name(
+                format!("view-once-{msg_id}-{index}").into(),
+            ))
+            .flex()
+            .items_center()
+            .gap_2()
+            .px_3()
+            .py_2()
+            .rounded_full()
+            .border_1()
+            .border_color(meta)
+            .text_color(if openable { fg } else { meta })
+            .when(openable, |d| {
+                d.cursor_pointer().on_click(move |_, window, cx| {
+                    let _ = app.update(cx, |this, cx| {
+                        this.open_view_once(msg_id, index, window, cx)
+                    });
+                })
+            })
+            .child(Icon::new(Icons::Clock).xsmall())
+            .child(label)
+            .test_support()
+            .into_any_element();
+    }
     if let (true, Some(path)) = (a.is_image(), a.local_path.as_ref()) {
         let (w, h) = match (a.width, a.height) {
             (Some(w), Some(h)) if w > 0 && h > 0 => {

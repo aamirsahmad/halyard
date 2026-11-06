@@ -273,6 +273,10 @@ pub enum Mutation {
     MarkStoryViewed {
         id: i64,
     },
+    /// A view-once attachment was opened: forget the media.
+    ViewOnceOpened {
+        message_id: i64,
+    },
     /// Photo of a conversation (contact or group) was stored at `path`.
     SetAvatar {
         conversation: ConversationId,
@@ -381,6 +385,7 @@ impl Mutation {
             | Mutation::InsertStory(_)
             | Mutation::MarkStoryViewed { .. }
             | Mutation::ContactsSynced { .. }
+            | Mutation::ViewOnceOpened { .. }
             | Mutation::StoryAttachmentDownloaded { .. }
             | Mutation::DeleteForMe { .. } => None,
         }

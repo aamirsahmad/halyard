@@ -1347,6 +1347,8 @@ fn local_attachment(path: &Path) -> Attachment {
         width: None,
         height: None,
         pointer: None,
+        view_once: false,
+        viewed: false,
     }
 }
 

@@ -769,3 +769,39 @@ fn mention_autocomplete_sends_a_real_mention(cx: &mut TestAppContext) {
         }]
     );
 }
+
+#[gpui_kit::test]
+fn view_once_photo_opens_once(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("secret.png");
+    std::fs::write(&path, TINY_PNG).unwrap();
+    let mut m = NewMessage::text(alice(), DEMO_ALICE, now_millis() - 1000, false, "");
+    m.attachments = vec![signal_core::Attachment {
+        content_type: "image/png".into(),
+        local_path: Some(path.to_string_lossy().into_owned()),
+        view_once: true,
+        ..Default::default()
+    }];
+    let h = setup_with(cx, vec![Mutation::InsertMessage(m)]);
+    with_app(cx, &h, |a, w, cx| a.open_conversation(alice(), w, cx));
+    let id = cx.update(|cx| {
+        h.app
+            .read(cx)
+            .state()
+            .messages()
+            .iter()
+            .find(|m| !m.attachments.is_empty())
+            .unwrap()
+            .id
+    });
+    with_window(cx, &h, |w, cx| {
+        w.click(eid(format!("view-once-{id}-0")), cx)
+    });
+    with_window(cx, &h, |w, _| {
+        assert!(w.try_find("view-once-viewer").is_some())
+    });
+    cx.update(|cx| {
+        let a = &h.app.read(cx).state().message(id).unwrap().attachments[0];
+        assert!(a.viewed && a.local_path.is_none(), "{a:?}");
+    });
+}

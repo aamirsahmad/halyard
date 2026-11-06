@@ -76,6 +76,60 @@ impl SignalApp {
     }
 }
 
+impl SignalApp {
+    /// Opens view-once media a single time, then forgets it.
+    pub fn open_view_once(
+        &mut self,
+        message_id: i64,
+        index: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(a) = self
+            .state
+            .message(message_id)
+            .and_then(|m| m.attachments.get(index))
+            .cloned()
+        else {
+            return;
+        };
+        let Some(path) = a.local_path.clone().filter(|_| a.view_once && !a.viewed) else {
+            return;
+        };
+        if a.is_image() {
+            match self.attachments.image(&path, &a.content_type) {
+                Some(image) => {
+                    let viewport = window.viewport_size();
+                    let (w, h) = (viewport.width * 0.8, viewport.height * 0.7);
+                    window.open_dialog(cx, move |dialog, _, _| {
+                        dialog.title("View-once photo").w(w).child(
+                            div()
+                                .id("view-once-viewer")
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .h(h)
+                                .child(
+                                    img(image.clone())
+                                        .size_full()
+                                        .object_fit(ObjectFit::Contain),
+                                )
+                                .test_support(),
+                        )
+                    });
+                }
+                None => {
+                    window.push_notification(Notification::error("Couldn't open this photo"), cx)
+                }
+            }
+        } else if let Ok(p) = self.attachments.path_for_open(&path, &a.display_name()) {
+            cx.open_with_system(&p);
+        }
+        self.attachments.forget_image(&path);
+        self.apply_local(signal_core::Mutation::ViewOnceOpened { message_id }, cx);
+    }
+}
+
 fn dirs_home() -> std::path::PathBuf {
     std::env::var_os("HOME")
         .map(Into::into)

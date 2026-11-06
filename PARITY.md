@@ -39,6 +39,9 @@ Legend: ✅ done · 🚧 partial · ⬜ not yet · ✖ not supported (reason giv
 | Copy text | ✅ |
 | Clickable links and link-preview cards | ✅ |
 | Formatting (bold, italic, strikethrough, monospace, spoiler) and @mentions | ✅ |
+| @mention autocomplete in group chats (sent as real mentions) | ✅ |
+| View-once photos and videos (open once, then deleted) | ✅ |
+| Contact and group photos; contact "about" and group description | ✅ |
 | Unread messages divider; chats open at the first unread message | ✅ |
 | Full date on timestamp hover | ✅ |
 | Typing indicator | ✅ |
@@ -76,7 +79,7 @@ Legend: ✅ done · 🚧 partial · ⬜ not yet · ✖ not supported (reason giv
 | Desktop notifications, unread count in title | ✅ |
 | Preferences: notifications on/off, notification content, read receipts, typing indicators, Enter-to-send, theme | ✅ |
 | Keyboard shortcuts and shortcuts dialog | ✅ |
-| Profile / linked-device info, unlink | ✅ |
+| Profile: edit your name and about; linked-device info; unlink | ✅ |
 | Zoom in / out / actual size (⌘/Ctrl + / − / 0), saved in preferences | ✅ |
 | Stories: view contacts' text and photo stories (24 h), unviewed rings, viewer | ✅ |
 | Replying to stories (text or emoji) | ✅ |

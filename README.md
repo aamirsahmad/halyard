@@ -18,9 +18,9 @@ comparison. Highlights:
 
 | Area | Features |
 |---|---|
-| Account | Link as a secondary device (QR code), profile and device info, unlink |
+| Account | Link as a secondary device (QR code), edit your profile name and about, device info, unlink |
 | Messaging | 1:1 and group (v2) chats, Note to Self, replies, reactions (quick bar + full emoji picker), edit (24 h) with history, delete for me / for everyone, forward, message info |
-| Rich content | Bold / italic / strikethrough / monospace / spoiler formatting, @mentions, clickable links, link-preview cards, stickers, shared contacts, image viewer with Save As, file attachments (picker or drag and drop, up to 100 MB) |
+| Rich content | Contact and group photos, bold / italic / strikethrough / monospace / spoiler formatting, @mentions with autocomplete, view-once media, clickable links, link-preview cards, stickers, shared contacts, image viewer with Save As, file attachments (picker or drag and drop, up to 100 MB) |
 | Privacy | Disappearing messages (timer, countdown, notices), message requests (accept / block / delete), block / unblock, safety numbers, read receipts and typing indicators toggles, notification content setting |
 | Chat list | Pin, timed mute, mark read/unread, archive, delete, drafts, typing previews, search across chats and messages, search within a chat, unread divider |
 | Stories & media | Contacts' stories (text and photo, 24 h) with a viewer and replies; voice notes play in the app and can be recorded (sent as WAV) |
