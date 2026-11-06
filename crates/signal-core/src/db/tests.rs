@@ -360,3 +360,31 @@ fn apply_all_merges_changes() {
     assert_eq!(ch.conversations[0].unread_count, 2);
     assert_eq!(ch.into_events().len(), 3);
 }
+
+#[test]
+fn attachment_download_updates_path() {
+    let mut db = db();
+    let ch = db
+        .apply(Mutation::InsertMessage(NewMessage {
+            conversation: alice(),
+            author: ALICE,
+            sent_at: 10,
+            received_at: 10,
+            outgoing: false,
+            body: String::new(),
+            attachments: vec![Attachment { content_type: "image/png".into(), ..Default::default() }],
+            quote: None,
+            status: MessageStatus::Received,
+            read: false,
+            expires_in_secs: None,
+        }))
+        .unwrap();
+    let id = ch.messages[0].id;
+    let ch = db
+        .apply(Mutation::AttachmentDownloaded { message_id: id, index: 0, local_path: "/x.png".into() })
+        .unwrap();
+    assert_eq!(ch.messages[0].attachments[0].local_path.as_deref(), Some("/x.png"));
+    // out of range index / unknown message are no-ops
+    assert!(db.apply(Mutation::AttachmentDownloaded { message_id: id, index: 3, local_path: "y".into() }).unwrap().is_empty());
+    assert!(db.apply(Mutation::AttachmentDownloaded { message_id: 999, index: 0, local_path: "y".into() }).unwrap().is_empty());
+}

@@ -138,6 +138,8 @@ pub enum Mutation {
     /// Another of our devices read a message.
     ReadSync { author: Uuid, sent_at: Millis },
     MarkConversationRead { conversation: ConversationId },
+    /// An attachment of a stored message finished downloading.
+    AttachmentDownloaded { message_id: i64, index: usize, local_path: String },
 }
 
 impl Mutation {
@@ -152,7 +154,9 @@ impl Mutation {
             | Mutation::MarkConversationRead { conversation } => Some(*conversation),
             Mutation::UpsertGroup { key, .. } => Some(ConversationId::Group(*key)),
             Mutation::UpsertContact(c) => Some(ConversationId::Direct(c.uuid)),
-            Mutation::Receipt { .. } | Mutation::ReadSync { .. } => None,
+            Mutation::Receipt { .. }
+            | Mutation::ReadSync { .. }
+            | Mutation::AttachmentDownloaded { .. } => None,
         }
     }
 }

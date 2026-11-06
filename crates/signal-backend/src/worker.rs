@@ -1,0 +1,920 @@
+//! The backend actor. Runs on its own OS thread with a single-threaded tokio
+//! runtime + `LocalSet` (presage's `Manager` is `!Send`). All database writes
+//! coming from the network happen here, sequentially; slow network operations
+//! run as local tasks that report back through an internal channel.
+
+use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::time::Duration;
+
+use futures::StreamExt;
+use futures::channel::oneshot;
+use presage::Manager;
+use presage::libsignal_service::configuration::SignalServers;
+use presage::libsignal_service::content::ContentBody;
+use presage::libsignal_service::proto::{
+    DataMessage, GroupContextV2, ReceiptMessage, SyncMessage, TypingMessage, data_message,
+    receipt_message, sync_message, typing_message,
+};
+use presage::libsignal_service::protocol::{Aci, ServiceId};
+use presage::libsignal_service::sender::AttachmentSpec;
+use presage::libsignal_service::zkgroup::groups::{GroupMasterKey, GroupSecretParams};
+use presage::manager::Registered;
+use presage::model::identity::OnNewIdentity;
+use presage::model::messages::Received;
+use presage::store::{ContentsStore, StateStore, Store};
+use presage_store_sqlite::SqliteStore;
+use signal_core::{
+    AccountInfo, AccountState, Attachment, BackendCommand, BackendEvent, Changes, Contact,
+    ConnectionState, ConversationId, Database, GroupKey, MessageStatus, Millis, Mutation,
+    NewMessage, Quote, now_millis,
+};
+use tokio::sync::mpsc;
+use tokio::task::{JoinHandle, LocalSet, spawn_local};
+use uuid::Uuid;
+
+use crate::interpret::{self, Ctx, Output};
+use crate::paths::DataPaths;
+
+pub type EventSink = Arc<dyn Fn(BackendEvent) + Send + Sync>;
+
+type Mgr = Manager<SqliteStore, Registered>;
+
+#[derive(Clone, Debug)]
+pub struct BackendConfig {
+    pub paths: DataPaths,
+    /// Key used to encrypt both databases.
+    pub db_key: String,
+    pub servers: SignalServers,
+}
+
+/// Handle to the backend thread. Dropping it shuts the backend down.
+pub struct BackendHandle {
+    tx: mpsc::UnboundedSender<BackendCommand>,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+
+impl BackendHandle {
+    pub(crate) fn from_parts(
+        tx: mpsc::UnboundedSender<BackendCommand>,
+        thread: std::thread::JoinHandle<()>,
+    ) -> Self {
+        Self { tx, thread: Some(thread) }
+    }
+
+    pub fn send(&self, cmd: BackendCommand) {
+        if self.tx.send(cmd).is_err() {
+            tracing::error!("backend thread is gone");
+        }
+    }
+
+    /// Requests shutdown and waits for the thread to finish.
+    pub fn shutdown(mut self) {
+        let _ = self.tx.send(BackendCommand::Shutdown);
+        if let Some(t) = self.thread.take() {
+            let _ = t.join();
+        }
+    }
+}
+
+impl Drop for BackendHandle {
+    fn drop(&mut self) {
+        let _ = self.tx.send(BackendCommand::Shutdown);
+    }
+}
+
+/// Starts the backend thread.
+pub fn spawn(config: BackendConfig, events: EventSink) -> std::io::Result<BackendHandle> {
+    let (tx, rx) = mpsc::unbounded_channel();
+    let thread = std::thread::Builder::new()
+        .name("signal-backend".into())
+        // libsignal's post-quantum code uses large stack frames
+        .stack_size(16 * 1024 * 1024)
+        .spawn(move || {
+            let rt = match tokio::runtime::Builder::new_current_thread().enable_all().build() {
+                Ok(rt) => rt,
+                Err(e) => {
+                    events(BackendEvent::Error(format!("failed to start runtime: {e}")));
+                    return;
+                }
+            };
+            let local = LocalSet::new();
+            local.block_on(&rt, async move {
+                match Worker::open(config, events.clone()).await {
+                    Ok(worker) => worker.run(rx).await,
+                    Err(e) => {
+                        tracing::error!(%e, "backend failed to start");
+                        events(BackendEvent::Error(format!("Failed to open local storage: {e}")));
+                    }
+                }
+            });
+        })?;
+    Ok(BackendHandle { tx, thread: Some(thread) })
+}
+
+/// Results of background tasks, delivered back to the actor loop.
+enum Internal {
+    LinkUrl(String),
+    Linked(Result<Mgr, String>),
+    Received(Received),
+    Connection(ConnectionState),
+    SendResult { conversation: ConversationId, sent_at: Millis, ok: bool, error: Option<String> },
+    AttachmentDownloaded { message_id: i64, index: usize, path: Option<PathBuf> },
+    Profile { uuid: Uuid, name: Option<String> },
+}
+
+struct Worker {
+    config: BackendConfig,
+    store: SqliteStore,
+    db: Database,
+    events: EventSink,
+    manager: Option<Mgr>,
+    me: Option<Uuid>,
+    group_ids: HashMap<[u8; 32], GroupKey>,
+    receive_task: Option<JoinHandle<()>>,
+    link_task: Option<JoinHandle<()>>,
+    internal_tx: mpsc::UnboundedSender<Internal>,
+    internal_rx: Option<mpsc::UnboundedReceiver<Internal>>,
+    last_sent_at: Millis,
+    profile_requested: HashSet<Uuid>,
+}
+
+/// Derives the public group identifier (as used in typing messages) from a master key.
+pub fn group_identifier(key: &GroupKey) -> [u8; 32] {
+    GroupSecretParams::derive_from_master_key(GroupMasterKey::new(key.0)).get_group_identifier()
+}
+
+fn sanitize_file_name(name: &str) -> String {
+    let cleaned: String = name
+        .chars()
+        .map(|c| if c.is_alphanumeric() || matches!(c, '.' | '-' | '_') { c } else { '_' })
+        .collect();
+    let cleaned = cleaned.trim_start_matches('.').to_string();
+    if cleaned.is_empty() { "attachment".into() } else { cleaned.chars().take(100).collect() }
+}
+
+/// Picks a unique, monotonically increasing send timestamp.
+pub fn next_timestamp(last: Millis, now: Millis) -> Millis {
+    if now > last { now } else { last + 1 }
+}
+
+impl Worker {
+    async fn open(config: BackendConfig, events: EventSink) -> anyhow::Result<Self> {
+        config.paths.ensure()?;
+        let store = SqliteStore::open_with_passphrase(
+            &config.paths.protocol_db().to_string_lossy(),
+            Some(&config.db_key),
+            // like Signal Desktop: accept changed safety numbers (and mark them in the UI later)
+            OnNewIdentity::Trust,
+        )
+        .await?;
+        let db = Database::open(config.paths.app_db(), Some(&config.db_key))?;
+        let (internal_tx, internal_rx) = mpsc::unbounded_channel();
+        Ok(Self {
+            config,
+            store,
+            db,
+            events,
+            manager: None,
+            me: None,
+            group_ids: HashMap::new(),
+            receive_task: None,
+            link_task: None,
+            internal_tx,
+            internal_rx: Some(internal_rx),
+            last_sent_at: 0,
+            profile_requested: HashSet::new(),
+        })
+    }
+
+    fn emit(&self, ev: BackendEvent) {
+        (self.events)(ev);
+    }
+
+    fn emit_changes(&self, changes: Changes) {
+        for ev in changes.into_events() {
+            self.emit(ev);
+        }
+    }
+
+    fn error(&self, context: &str, e: impl std::fmt::Display) {
+        tracing::error!(%e, "{context}");
+        self.emit(BackendEvent::Error(format!("{context}: {e}")));
+    }
+
+    fn apply(&mut self, m: Mutation) -> Changes {
+        match self.db.apply(m) {
+            Ok(ch) => ch,
+            Err(e) => {
+                self.error("Database error", e);
+                Changes::default()
+            }
+        }
+    }
+
+    async fn run(mut self, mut rx: mpsc::UnboundedReceiver<BackendCommand>) {
+        let mut internal_rx = self.internal_rx.take().expect("internal rx");
+        self.startup().await;
+        loop {
+            tokio::select! {
+                cmd = rx.recv() => match cmd {
+                    None | Some(BackendCommand::Shutdown) => break,
+                    Some(cmd) => self.handle_command(cmd).await,
+                },
+                Some(msg) = internal_rx.recv() => self.handle_internal(msg).await,
+            }
+        }
+        if let Some(t) = self.receive_task.take() {
+            t.abort();
+        }
+        tracing::info!("backend stopped");
+    }
+
+    async fn startup(&mut self) {
+        if !self.store.is_registered().await {
+            self.emit(BackendEvent::Account(AccountState::Unlinked));
+            return;
+        }
+        match Manager::load_registered(self.store.clone()).await {
+            Ok(manager) => self.on_registered(manager, false).await,
+            Err(e) => {
+                tracing::error!(%e, "failed to load registration");
+                self.emit(BackendEvent::Account(AccountState::LinkFailed(format!(
+                    "This device is no longer linked ({e}). Please link it again."
+                ))));
+            }
+        }
+    }
+
+    async fn on_registered(&mut self, mut manager: Mgr, fresh_link: bool) {
+        let data = manager.registration_data().clone();
+        let info = AccountInfo {
+            aci: data.service_ids.aci,
+            phone_number: Some(data.phone_number.to_string()),
+            device_id: u32::from(manager.device_id()),
+            device_name: data.device_name.clone(),
+        };
+        self.me = Some(info.aci);
+        if fresh_link {
+            if let Err(e) = manager.request_contacts().await {
+                tracing::warn!(%e, "failed to request contacts sync");
+            }
+        }
+        self.manager = Some(manager);
+        self.sync_contacts_and_groups().await;
+        self.emit(BackendEvent::Account(AccountState::Registered(info)));
+        self.start_receiving();
+    }
+
+    fn start_receiving(&mut self) {
+        if let Some(t) = self.receive_task.take() {
+            t.abort();
+        }
+        let Some(manager) = self.manager.clone() else { return };
+        let tx = self.internal_tx.clone();
+        self.receive_task = Some(spawn_local(receive_loop(manager, tx)));
+    }
+
+    async fn sync_contacts_and_groups(&mut self) {
+        let mut mutations = Vec::new();
+        match self.store.contacts().await {
+            Ok(iter) => {
+                for c in iter.flatten() {
+                    mutations.push(Mutation::UpsertContact(Contact {
+                        uuid: c.uuid,
+                        name: Some(c.name).filter(|n| !n.trim().is_empty()),
+                        profile_name: None,
+                        phone: c.phone_number.map(|p| p.to_string()),
+                    }));
+                }
+            }
+            Err(e) => tracing::warn!(%e, "failed to read contacts"),
+        }
+        match self.store.groups().await {
+            Ok(iter) => {
+                for (key, g) in iter.flatten() {
+                    let gk = GroupKey(key);
+                    self.group_ids.insert(group_identifier(&gk), gk);
+                    mutations.push(Mutation::UpsertGroup {
+                        key: gk,
+                        title: g.title,
+                        members: g.members.iter().map(|m| m.aci.into()).collect(),
+                    });
+                }
+            }
+            Err(e) => tracing::warn!(%e, "failed to read groups"),
+        }
+        match self.db.apply_all(mutations) {
+            Ok(ch) => self.emit_changes(ch),
+            Err(e) => self.error("Failed to save contacts", e),
+        }
+        self.emit(BackendEvent::ContactsChanged);
+    }
+
+    async fn ensure_group(&mut self, key: GroupKey) {
+        self.group_ids.entry(group_identifier(&key)).or_insert(key);
+        let id = ConversationId::Group(key);
+        let known = matches!(self.db.conversation(&id), Ok(Some(c)) if c.title != "Unknown group");
+        if known {
+            return;
+        }
+        if let Ok(Some(g)) = self.store.group(key.0).await {
+            let ch = self.apply(Mutation::UpsertGroup {
+                key,
+                title: g.title,
+                members: g.members.iter().map(|m| m.aci.into()).collect(),
+            });
+            self.emit_changes(ch);
+        }
+    }
+
+    /// Fetches the profile name of a sender we have no name for.
+    async fn ensure_profile(&mut self, uuid: Uuid) {
+        if Some(uuid) == self.me || !self.profile_requested.insert(uuid) {
+            return;
+        }
+        if matches!(self.db.contact(&uuid), Ok(Some(c)) if c.name.is_some() || c.profile_name.is_some()) {
+            return;
+        }
+        let Some(mut manager) = self.manager.clone() else { return };
+        let sid = ServiceId::Aci(Aci::from(uuid));
+        let Ok(Some(key)) = self.store.profile_key(&sid).await else { return };
+        let tx = self.internal_tx.clone();
+        spawn_local(async move {
+            let name = match manager.retrieve_profile_by_uuid(Aci::from(uuid), key).await {
+                Ok(p) => p.name.map(|n| match n.family_name {
+                    Some(f) if !f.is_empty() => format!("{} {f}", n.given_name),
+                    _ => n.given_name,
+                }),
+                Err(e) => {
+                    tracing::debug!(%e, "profile fetch failed");
+                    None
+                }
+            };
+            let _ = tx.send(Internal::Profile { uuid, name });
+        });
+    }
+
+    async fn handle_internal(&mut self, msg: Internal) {
+        match msg {
+            Internal::LinkUrl(url) => {
+                self.emit(BackendEvent::Account(AccountState::Linking { url: Some(url) }))
+            }
+            Internal::Linked(Ok(manager)) => {
+                self.link_task = None;
+                self.on_registered(manager, true).await;
+            }
+            Internal::Linked(Err(e)) => {
+                self.link_task = None;
+                self.emit(BackendEvent::Account(AccountState::LinkFailed(e)));
+            }
+            Internal::Connection(c) => self.emit(BackendEvent::Connection(c)),
+            Internal::Received(r) => self.handle_received(r).await,
+            Internal::SendResult { conversation, sent_at, ok, error } => {
+                let status = if ok { MessageStatus::Sent } else { MessageStatus::Failed };
+                let ch = self.apply(Mutation::SendStatus { conversation, sent_at, status });
+                self.emit_changes(ch);
+                if let Some(e) = error {
+                    self.emit(BackendEvent::Error(format!("Message not sent: {e}")));
+                }
+            }
+            Internal::AttachmentDownloaded { message_id, index, path } => {
+                if let Some(path) = path {
+                    let ch = self.apply(Mutation::AttachmentDownloaded {
+                        message_id,
+                        index,
+                        local_path: path.to_string_lossy().into_owned(),
+                    });
+                    self.emit_changes(ch);
+                }
+            }
+            Internal::Profile { uuid, name } => {
+                if let Some(name) = name.filter(|n| !n.trim().is_empty()) {
+                    let ch = self.apply(Mutation::UpsertContact(Contact {
+                        uuid,
+                        name: None,
+                        profile_name: Some(name),
+                        phone: None,
+                    }));
+                    self.emit_changes(ch);
+                }
+            }
+        }
+    }
+
+    async fn handle_received(&mut self, received: Received) {
+        match received {
+            Received::QueueEmpty => self.emit(BackendEvent::Connection(ConnectionState::Online)),
+            Received::Contacts => self.sync_contacts_and_groups().await,
+            Received::DecryptionError(sender) => {
+                tracing::warn!(sender = %sender.service_id_string(), "failed to decrypt message");
+            }
+            Received::Content(content) => {
+                let Some(me) = self.me else { return };
+                let groups = self.group_ids.clone();
+                let resolve = move |id: &[u8]| -> Option<GroupKey> {
+                    let id: [u8; 32] = id.try_into().ok()?;
+                    groups.get(&id).copied()
+                };
+                let outputs = interpret::interpret(
+                    &content,
+                    &Ctx { me, received_at: now_millis(), group_by_id: &resolve },
+                );
+                for out in outputs {
+                    match out {
+                        Output::GroupSeen(key) => self.ensure_group(key).await,
+                        Output::Typing { conversation, who, started } => {
+                            self.emit(BackendEvent::Typing { conversation, who, started })
+                        }
+                        Output::Mutation(m) => {
+                            let author = match &m {
+                                Mutation::InsertMessage(n) if !n.outgoing => Some(n.author),
+                                _ => None,
+                            };
+                            let changes = self.apply(m);
+                            for msg in &changes.messages {
+                                if !msg.outgoing {
+                                    self.download_attachments(msg.id, &msg.attachments);
+                                }
+                            }
+                            self.emit_changes(changes);
+                            if let Some(author) = author {
+                                self.ensure_profile(author).await;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn download_attachments(&self, message_id: i64, attachments: &[Attachment]) {
+        let Some(manager) = self.manager.clone() else { return };
+        for (index, att) in attachments.iter().enumerate() {
+            if att.local_path.is_some() {
+                continue;
+            }
+            let Some(pointer) = interpret::pointer_from_attachment(att) else { continue };
+            let manager = manager.clone();
+            let tx = self.internal_tx.clone();
+            let dir = self.config.paths.attachments_dir();
+            let file_name = format!("{message_id}-{index}-{}", sanitize_file_name(&att.display_name()));
+            spawn_local(async move {
+                let path = match manager.get_attachment(&pointer).await {
+                    Ok(bytes) => {
+                        let path = dir.join(file_name);
+                        match tokio::fs::write(&path, bytes).await {
+                            Ok(()) => Some(path),
+                            Err(e) => {
+                                tracing::error!(%e, "failed to save attachment");
+                                None
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!(%e, "failed to download attachment");
+                        None
+                    }
+                };
+                let _ = tx.send(Internal::AttachmentDownloaded { message_id, index, path });
+            });
+        }
+    }
+
+    async fn handle_command(&mut self, cmd: BackendCommand) {
+        match cmd {
+            BackendCommand::Link { device_name } => self.start_linking(device_name),
+            BackendCommand::SendText { conversation, body, quote, attachments } => {
+                self.send_text(conversation, body, quote, attachments, None)
+            }
+            BackendCommand::Resend { conversation, sent_at } => {
+                let Some(me) = self.me else { return };
+                if let Ok(Some(msg)) = self.db.message_by_key(&conversation, &me, sent_at) {
+                    let paths = msg
+                        .attachments
+                        .iter()
+                        .filter_map(|a| a.local_path.as_ref().map(PathBuf::from))
+                        .collect();
+                    self.send_text(conversation, msg.body, msg.quote, paths, Some(sent_at));
+                }
+            }
+            BackendCommand::React { conversation, target_author, target_sent_at, emoji, remove } => {
+                let Some(me) = self.me else { return };
+                let at = self.next_ts();
+                let ch = self.apply(Mutation::React {
+                    conversation,
+                    target_author,
+                    target_sent_at,
+                    reactor: me,
+                    emoji: emoji.clone(),
+                    remove,
+                    at,
+                });
+                self.emit_changes(ch);
+                let dm = DataMessage {
+                    timestamp: Some(at as u64),
+                    reaction: Some(data_message::Reaction {
+                        emoji: Some(emoji),
+                        remove: Some(remove),
+                        target_author_aci: Some(target_author.to_string()),
+                        target_sent_timestamp: Some(target_sent_at as u64),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                };
+                self.spawn_send(conversation, dm, at, false);
+            }
+            BackendCommand::DeleteForEveryone { conversation, sent_at } => {
+                let Some(me) = self.me else { return };
+                let ch = self.apply(Mutation::DeleteForEveryone { conversation, author: me, target_sent_at: sent_at });
+                self.emit_changes(ch);
+                let at = self.next_ts();
+                let dm = DataMessage {
+                    timestamp: Some(at as u64),
+                    delete: Some(data_message::Delete { target_sent_timestamp: Some(sent_at as u64) }),
+                    ..Default::default()
+                };
+                self.spawn_send(conversation, dm, at, false);
+            }
+            BackendCommand::MarkRead { conversation } => self.mark_read(conversation),
+            BackendCommand::Typing { conversation, started } => self.send_typing(conversation, started),
+            BackendCommand::SyncContacts => {
+                if let Some(mut m) = self.manager.clone() {
+                    spawn_local(async move {
+                        if let Err(e) = m.request_contacts().await {
+                            tracing::warn!(%e, "contact sync request failed");
+                        }
+                    });
+                }
+            }
+            BackendCommand::Unlink => self.unlink().await,
+            BackendCommand::Shutdown => {}
+        }
+    }
+
+    fn next_ts(&mut self) -> Millis {
+        self.last_sent_at = next_timestamp(self.last_sent_at, now_millis());
+        self.last_sent_at
+    }
+
+    fn start_linking(&mut self, device_name: String) {
+        if self.manager.is_some() || self.link_task.is_some() {
+            return;
+        }
+        self.emit(BackendEvent::Account(AccountState::Linking { url: None }));
+        let store = self.store.clone();
+        let servers = self.config.servers;
+        let tx = self.internal_tx.clone();
+        self.link_task = Some(spawn_local(async move {
+            let (url_tx, url_rx) = oneshot::channel::<url::Url>();
+            let url_fwd = {
+                let tx = tx.clone();
+                async move {
+                    if let Ok(url) = url_rx.await {
+                        let _ = tx.send(Internal::LinkUrl(url.to_string()));
+                    }
+                }
+            };
+            let (result, ()) = futures::join!(
+                Manager::link_secondary_device(store, servers, device_name, url_tx),
+                url_fwd
+            );
+            let _ = tx.send(Internal::Linked(result.map_err(|e| e.to_string())));
+        }));
+    }
+
+    fn send_text(
+        &mut self,
+        conversation: ConversationId,
+        body: String,
+        quote: Option<Quote>,
+        attachment_paths: Vec<PathBuf>,
+        resend_ts: Option<Millis>,
+    ) {
+        let Some(me) = self.me else {
+            self.emit(BackendEvent::Error("Not linked".into()));
+            return;
+        };
+        let body = body.trim_end().to_string();
+        if body.trim().is_empty() && attachment_paths.is_empty() {
+            return;
+        }
+        let sent_at = match resend_ts {
+            Some(ts) => ts,
+            None => {
+                let ts = self.next_ts();
+                let attachments = attachment_paths.iter().map(|p| local_attachment(p)).collect();
+                let ch = self.apply(Mutation::InsertMessage(NewMessage {
+                    conversation,
+                    author: me,
+                    sent_at: ts,
+                    received_at: ts,
+                    outgoing: true,
+                    body: body.clone(),
+                    attachments,
+                    quote: quote.clone(),
+                    status: MessageStatus::Sending,
+                    read: true,
+                    expires_in_secs: None,
+                }));
+                self.emit_changes(ch);
+                ts
+            }
+        };
+        let Some(manager) = self.manager.clone() else { return };
+        let tx = self.internal_tx.clone();
+        spawn_local(async move {
+            let result = async {
+                let pointers = upload(&manager, &attachment_paths).await?;
+                let dm = DataMessage {
+                    body: Some(body).filter(|b| !b.is_empty()),
+                    timestamp: Some(sent_at as u64),
+                    attachments: pointers,
+                    quote: quote.map(|q| data_message::Quote {
+                        id: Some(q.sent_at as u64),
+                        author_aci: Some(q.author.to_string()),
+                        text: Some(q.text),
+                        r#type: Some(data_message::quote::Type::Normal as i32),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                };
+                deliver(manager, conversation, dm, sent_at).await
+            }
+            .await;
+            let _ = tx.send(Internal::SendResult {
+                conversation,
+                sent_at,
+                ok: result.is_ok(),
+                error: result.err(),
+            });
+        });
+    }
+
+    /// Sends a control message (reaction, deletion) in the background.
+    fn spawn_send(&self, conversation: ConversationId, dm: DataMessage, at: Millis, report: bool) {
+        let Some(manager) = self.manager.clone() else { return };
+        let tx = self.internal_tx.clone();
+        spawn_local(async move {
+            if let Err(e) = deliver(manager, conversation, dm, at).await {
+                tracing::warn!(%e, "failed to send control message");
+                if report {
+                    let _ = tx.send(Internal::SendResult { conversation, sent_at: at, ok: false, error: Some(e) });
+                }
+            }
+        });
+    }
+
+    fn mark_read(&mut self, conversation: ConversationId) {
+        let unread = self.db.unread_messages(&conversation).unwrap_or_default();
+        let ch = self.apply(Mutation::MarkConversationRead { conversation });
+        self.emit_changes(ch);
+        if unread.is_empty() {
+            return;
+        }
+        let (Some(manager), Some(me)) = (self.manager.clone(), self.me) else { return };
+        let mut by_author: HashMap<Uuid, Vec<u64>> = HashMap::new();
+        for m in &unread {
+            by_author.entry(m.author).or_default().push(m.sent_at as u64);
+        }
+        let now = self.next_ts() as u64;
+        spawn_local(async move {
+            let mut manager = manager;
+            for (author, timestamps) in &by_author {
+                let receipt = ReceiptMessage {
+                    r#type: Some(receipt_message::Type::Read as i32),
+                    timestamp: timestamps.clone(),
+                };
+                if let Err(e) = manager
+                    .send_message(ServiceId::Aci(Aci::from(*author)), ContentBody::ReceiptMessage(receipt), now)
+                    .await
+                {
+                    tracing::debug!(%e, "failed to send read receipt");
+                }
+            }
+            // let our other devices know too
+            let sync = SyncMessage {
+                read: by_author
+                    .iter()
+                    .flat_map(|(a, ts)| {
+                        ts.iter().map(move |t| sync_message::Read {
+                            sender_aci: Some(a.to_string()),
+                            timestamp: Some(*t),
+                            ..Default::default()
+                        })
+                    })
+                    .collect(),
+                ..Default::default()
+            };
+            if let Err(e) = manager
+                .send_message(ServiceId::Aci(Aci::from(me)), ContentBody::SynchronizeMessage(sync), now)
+                .await
+            {
+                tracing::debug!(%e, "failed to send read sync");
+            }
+        });
+    }
+
+    fn send_typing(&mut self, conversation: ConversationId, started: bool) {
+        let Some(mut manager) = self.manager.clone() else { return };
+        let ts = now_millis() as u64;
+        let action = if started { typing_message::Action::Started } else { typing_message::Action::Stopped };
+        spawn_local(async move {
+            let result = match conversation {
+                ConversationId::Direct(uuid) => {
+                    let msg = TypingMessage { timestamp: Some(ts), action: Some(action as i32), group_id: None };
+                    manager.send_message(ServiceId::Aci(Aci::from(uuid)), ContentBody::TypingMessage(msg), ts).await
+                }
+                ConversationId::Group(key) => {
+                    let msg = TypingMessage {
+                        timestamp: Some(ts),
+                        action: Some(action as i32),
+                        group_id: Some(group_identifier(&key).to_vec()),
+                    };
+                    manager.send_message_to_group(&key.0, ContentBody::TypingMessage(msg), ts).await
+                }
+            };
+            if let Err(e) = result {
+                tracing::debug!(%e, "failed to send typing indicator");
+            }
+        });
+    }
+
+    async fn unlink(&mut self) {
+        if let Some(t) = self.receive_task.take() {
+            t.abort();
+        }
+        if let Some(t) = self.link_task.take() {
+            t.abort();
+        }
+        if let Some(manager) = self.manager.take() {
+            if let Err(e) = manager.unlink_self().await {
+                tracing::warn!(%e, "failed to unlink on the server; wiping local data anyway");
+            }
+        }
+        if let Err(e) = self.store.clear().await {
+            self.error("Failed to clear protocol store", e);
+        }
+        if let Err(e) = self.db.wipe() {
+            self.error("Failed to clear messages", e);
+        }
+        let _ = std::fs::remove_dir_all(self.config.paths.attachments_dir());
+        let _ = self.config.paths.ensure();
+        self.me = None;
+        self.group_ids.clear();
+        self.profile_requested.clear();
+        self.emit(BackendEvent::Connection(ConnectionState::Disconnected));
+        self.emit(BackendEvent::Account(AccountState::Unlinked));
+    }
+}
+
+fn local_attachment(path: &Path) -> Attachment {
+    let size = std::fs::metadata(path).map(|m| m.len()).unwrap_or_default();
+    Attachment {
+        content_type: mime_guess::from_path(path).first_or_octet_stream().essence_str().to_string(),
+        file_name: path.file_name().map(|n| n.to_string_lossy().into_owned()),
+        size,
+        local_path: Some(path.to_string_lossy().into_owned()),
+        width: None,
+        height: None,
+        pointer: None,
+    }
+}
+
+/// Maximum attachment size accepted by Signal servers (100 MiB).
+pub const MAX_ATTACHMENT_BYTES: u64 = 100 * 1024 * 1024;
+
+async fn upload(
+    manager: &Mgr,
+    paths: &[PathBuf],
+) -> Result<Vec<presage::libsignal_service::proto::AttachmentPointer>, String> {
+    let mut specs = Vec::with_capacity(paths.len());
+    for path in paths {
+        let meta = tokio::fs::metadata(path).await.map_err(|e| format!("{}: {e}", path.display()))?;
+        if meta.len() > MAX_ATTACHMENT_BYTES {
+            return Err(format!("{} is larger than 100 MB", path.display()));
+        }
+        let bytes = tokio::fs::read(path).await.map_err(|e| format!("{}: {e}", path.display()))?;
+        let a = local_attachment(path);
+        specs.push((
+            AttachmentSpec {
+                content_type: a.content_type,
+                length: bytes.len(),
+                file_name: a.file_name,
+                preview: None,
+                voice_note: None,
+                borderless: None,
+                width: None,
+                height: None,
+                caption: None,
+                blur_hash: None,
+            },
+            bytes,
+        ));
+    }
+    let results = manager.upload_attachments(specs).await.map_err(|e| e.to_string())?;
+    results.into_iter().map(|r| r.map_err(|e| format!("upload failed: {e}"))).collect()
+}
+
+async fn deliver(
+    mut manager: Mgr,
+    conversation: ConversationId,
+    mut dm: DataMessage,
+    ts: Millis,
+) -> Result<(), String> {
+    let ts = ts as u64;
+    match conversation {
+        ConversationId::Direct(uuid) => manager
+            .send_message(ServiceId::Aci(Aci::from(uuid)), dm, ts)
+            .await
+            .map_err(|e| e.to_string()),
+        ConversationId::Group(key) => {
+            let group_revision = match manager.store().group(key.0).await {
+                Ok(Some(g)) => g.revision,
+                _ => 0,
+            };
+            dm.group_v2 = Some(GroupContextV2 {
+                master_key: Some(key.0.to_vec()),
+                revision: Some(group_revision),
+                group_change: None,
+            });
+            manager.send_message_to_group(&key.0, dm, ts).await.map_err(|e| e.to_string())
+        }
+    }
+}
+
+/// Keeps a websocket open, reconnecting with exponential backoff.
+async fn receive_loop(mut manager: Mgr, tx: mpsc::UnboundedSender<Internal>) {
+    let mut backoff = Duration::from_secs(1);
+    loop {
+        let _ = tx.send(Internal::Connection(ConnectionState::Connecting));
+        match manager.receive_messages().await {
+            Ok(stream) => {
+                let _ = tx.send(Internal::Connection(ConnectionState::Syncing));
+                futures::pin_mut!(stream);
+                while let Some(item) = stream.next().await {
+                    if matches!(item, Received::QueueEmpty) {
+                        backoff = Duration::from_secs(1);
+                    }
+                    if tx.send(Internal::Received(item)).is_err() {
+                        return;
+                    }
+                }
+                tracing::info!("message stream closed");
+                let _ = tx.send(Internal::Connection(ConnectionState::Offline {
+                    reason: "Connection closed".into(),
+                    retry_in_secs: backoff.as_secs(),
+                }));
+            }
+            Err(e) => {
+                tracing::warn!(%e, "failed to open message stream");
+                let _ = tx.send(Internal::Connection(ConnectionState::Offline {
+                    reason: e.to_string(),
+                    retry_in_secs: backoff.as_secs(),
+                }));
+            }
+        }
+        tokio::time::sleep(backoff).await;
+        backoff = (backoff * 2).min(Duration::from_secs(60));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn timestamps_are_strictly_increasing() {
+        assert_eq!(next_timestamp(0, 100), 100);
+        assert_eq!(next_timestamp(100, 100), 101);
+        assert_eq!(next_timestamp(150, 100), 151);
+    }
+
+    #[test]
+    fn sanitizes_attachment_names() {
+        assert_eq!(sanitize_file_name("../../etc/passwd"), "_.._etc_passwd");
+        assert_eq!(sanitize_file_name("..."), "attachment");
+        assert_eq!(sanitize_file_name("photo 1.jpg"), "photo_1.jpg");
+        assert_eq!(sanitize_file_name(&"a".repeat(300)).len(), 100);
+    }
+
+    #[test]
+    fn group_identifier_is_stable() {
+        let k = GroupKey([5; 32]);
+        assert_eq!(group_identifier(&k), group_identifier(&k));
+        assert_ne!(group_identifier(&k), group_identifier(&GroupKey([6; 32])));
+        assert_ne!(group_identifier(&k), k.0);
+    }
+
+    #[test]
+    fn local_attachment_guesses_mime() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("pic.png");
+        std::fs::write(&p, [0u8; 10]).unwrap();
+        let a = local_attachment(&p);
+        assert_eq!(a.content_type, "image/png");
+        assert_eq!(a.size, 10);
+        assert_eq!(a.file_name.as_deref(), Some("pic.png"));
+    }
+}

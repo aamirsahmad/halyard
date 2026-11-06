@@ -8189,13 +8189,18 @@ dependencies = [
  "chrono",
  "futures",
  "hex",
+ "mime_guess",
  "presage",
  "presage-store-sqlite",
+ "rand 0.9.5",
+ "serde",
+ "serde_json",
  "signal-core",
  "tempfile",
  "thiserror 2.0.21",
  "tokio",
  "tracing",
+ "url",
  "uuid",
 ]
 

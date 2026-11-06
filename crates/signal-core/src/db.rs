@@ -682,6 +682,19 @@ impl Writer<'_> {
                     changes.conversations.push(self.refresh_summary(&conversation)?);
                 }
             }
+            Mutation::AttachmentDownloaded { message_id, index, local_path } => {
+                let Ok(mut msg) = self.message(message_id) else {
+                    return Ok(changes);
+                };
+                if let Some(att) = msg.attachments.get_mut(index) {
+                    att.local_path = Some(local_path);
+                    self.conn.execute(
+                        "UPDATE messages SET attachments = ?2 WHERE id = ?1",
+                        params![message_id, serde_json::to_string(&msg.attachments)?],
+                    )?;
+                    changes.messages.push(self.message(message_id)?);
+                }
+            }
         }
         Ok(changes)
     }
