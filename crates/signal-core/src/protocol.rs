@@ -125,6 +125,7 @@ pub enum BackendEvent {
         started: bool,
     },
     ContactsChanged,
+    StoriesChanged,
     /// Safety number (60 digits) with a contact; `None` if no session yet.
     SafetyNumber {
         contact: Uuid,
@@ -201,6 +202,16 @@ impl NewMessage {
     }
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct NewStory {
+    pub author: Uuid,
+    pub sent_at: Millis,
+    pub text: Option<String>,
+    pub background: Option<u32>,
+    pub foreground: Option<u32>,
+    pub attachment: Option<Attachment>,
+}
+
 /// Storage mutations; the backend interprets protocol content into these and
 /// the [`crate::db::Database`] applies them.
 #[derive(Clone, Debug, PartialEq)]
@@ -238,6 +249,15 @@ pub enum Mutation {
         from: Uuid,
         kind: ReceiptKind,
         sent_ats: Vec<Millis>,
+    },
+    /// A story to store (ignored if already known).
+    InsertStory(NewStory),
+    MarkStoryViewed {
+        id: i64,
+    },
+    StoryAttachmentDownloaded {
+        id: i64,
+        local_path: String,
     },
     /// Local outcome of sending a message.
     SendStatus {
@@ -323,6 +343,9 @@ impl Mutation {
             | Mutation::ReadSync { .. }
             | Mutation::AttachmentDownloaded { .. }
             | Mutation::ExpireDue { .. }
+            | Mutation::InsertStory(_)
+            | Mutation::MarkStoryViewed { .. }
+            | Mutation::StoryAttachmentDownloaded { .. }
             | Mutation::DeleteForMe { .. } => None,
         }
     }
@@ -337,6 +360,8 @@ pub struct Changes {
     pub removed_conversations: Vec<ConversationId>,
     /// Local attachment files of removed messages (for the caller to delete).
     pub removed_files: Vec<String>,
+    /// Stories were added, viewed or expired.
+    pub stories_changed: bool,
 }
 
 impl Changes {
@@ -345,6 +370,7 @@ impl Changes {
             && self.messages.is_empty()
             && self.removed_messages.is_empty()
             && self.removed_conversations.is_empty()
+            && !self.stories_changed
     }
 
     pub fn extend(&mut self, other: Changes) {
@@ -361,6 +387,7 @@ impl Changes {
             self.removed_messages.push(r);
         }
         self.removed_files.extend(other.removed_files);
+        self.stories_changed |= other.stories_changed;
         for c in other.removed_conversations {
             self.conversations.retain(|x| x.id != c);
             self.removed_conversations.push(c);
@@ -368,6 +395,7 @@ impl Changes {
     }
 
     pub fn into_events(self) -> Vec<BackendEvent> {
+        let stories = self.stories_changed;
         let mut ev: Vec<BackendEvent> = self
             .removed_messages
             .into_iter()
@@ -384,6 +412,9 @@ impl Changes {
                 .into_iter()
                 .map(BackendEvent::ConversationUpdated),
         );
+        if stories {
+            ev.push(BackendEvent::StoriesChanged);
+        }
         ev
     }
 }

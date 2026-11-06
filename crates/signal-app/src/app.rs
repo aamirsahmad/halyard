@@ -126,6 +126,7 @@ pub enum ListMode {
     Archived,
     /// Choosing a contact to start a new chat.
     NewChat,
+    Stories,
 }
 
 pub struct SignalApp {
@@ -158,6 +159,7 @@ pub struct SignalApp {
     settings_path: Option<PathBuf>,
     pub(crate) attachments: Rc<crate::attachments::AttachmentAccess>,
     pub(crate) audio: Rc<crate::audio::AudioPlayer>,
+    pub(crate) stories: Vec<signal_core::Story>,
     audio_was_active: bool,
     pub(crate) composer_emoji: Entity<crate::views::emoji_picker::EmojiPicker>,
     pub(crate) reaction_picker: Entity<crate::views::emoji_picker::EmojiPicker>,
@@ -314,6 +316,7 @@ impl SignalApp {
             settings_path: None,
             attachments: Rc::default(),
             audio: Rc::default(),
+            stories: Vec::new(),
             audio_was_active: false,
             composer_emoji,
             reaction_picker,
@@ -491,6 +494,7 @@ impl SignalApp {
                 reload_names = true;
             }
             BackendEvent::ContactsChanged => reload_names = true,
+            BackendEvent::StoriesChanged => self.reload_stories(),
             BackendEvent::SafetyNumber { contact, number } => {
                 self.show_safety_number(*contact, number.clone(), window, cx);
             }
@@ -522,6 +526,7 @@ impl SignalApp {
         }
         if registered_now {
             self.reload_conversations();
+            self.reload_stories();
             if self.list_mode == ListMode::NewChat {
                 self.load_contacts();
             }
@@ -823,6 +828,9 @@ impl SignalApp {
     pub fn set_list_mode(&mut self, mode: ListMode, window: &mut Window, cx: &mut Context<Self>) {
         self.list_mode = mode;
         self.state.show_archived = mode == ListMode::Archived;
+        if mode == ListMode::Stories {
+            self.reload_stories();
+        }
         if mode == ListMode::NewChat {
             self.load_contacts();
             self.search.read(cx).focus_handle(cx).focus(window, cx);

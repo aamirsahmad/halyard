@@ -158,6 +158,11 @@ mod rendering {
             registered(app, window, cx);
             app.open_preferences(window, cx);
         });
+        let _stories = capture("stories", ThemeMode::Light, |app, window, cx| {
+            registered(app, window, cx);
+            app.set_list_mode(signal_app::app::ListMode::Stories, window, cx);
+            app.open_story_viewer(signal_backend::demo::DEMO_ALICE, window, cx);
+        });
         let _members = capture("group-members", ThemeMode::Light, |app, window, cx| {
             registered(app, window, cx);
             app.open_conversation(ConversationId::Group(DEMO_GROUP), window, cx);

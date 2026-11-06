@@ -10,6 +10,7 @@ use rusqlite::{Connection, OptionalExtension, Row, params};
 use uuid::Uuid;
 
 use crate::ids::ConversationId;
+use crate::model::Story;
 use crate::model::{
     Contact, Conversation, Message, MessageKind, MessageStatus, Millis, Reaction, Revision,
     now_millis,
@@ -30,7 +31,7 @@ pub enum DbError {
 
 pub type Result<T> = std::result::Result<T, DbError>;
 
-pub const SCHEMA_VERSION: i64 = 3;
+pub const SCHEMA_VERSION: i64 = 4;
 
 const MIGRATIONS: &[&str] = &[
     // v1
@@ -94,6 +95,20 @@ const MIGRATIONS: &[&str] = &[
     r#"
     ALTER TABLE messages ADD COLUMN link_preview TEXT;
     "#,
+    // v4: stories
+    r#"
+    CREATE TABLE stories (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        author TEXT NOT NULL,
+        sent_at INTEGER NOT NULL,
+        text TEXT,
+        background INTEGER,
+        foreground INTEGER,
+        attachment TEXT,
+        viewed INTEGER NOT NULL DEFAULT 0,
+        UNIQUE(author, sent_at)
+    );
+    "#,
 ];
 
 pub struct Database {
@@ -156,6 +171,20 @@ fn message_from_row(row: &Row) -> rusqlite::Result<Message> {
         link_preview: row
             .get::<_, Option<String>>(19)?
             .and_then(|p| serde_json::from_str(&p).ok()),
+    })
+}
+
+fn story_from_row(row: &Row) -> rusqlite::Result<Story> {
+    let attachment: Option<String> = row.get(6)?;
+    Ok(Story {
+        id: row.get(0)?,
+        author: parse_uuid(row.get(1)?)?,
+        sent_at: row.get(2)?,
+        text: row.get(3)?,
+        background: row.get::<_, Option<i64>>(4)?.map(|v| v as u32),
+        foreground: row.get::<_, Option<i64>>(5)?.map(|v| v as u32),
+        attachment: attachment.and_then(|a| serde_json::from_str(&a).ok()),
+        viewed: bool_col(row, 7)?,
     })
 }
 
@@ -337,6 +366,16 @@ impl Database {
         let mut out: Vec<Message> = rows.collect::<rusqlite::Result<_>>()?;
         out.reverse();
         Ok(out)
+    }
+
+    /// Live stories, newest first.
+    pub fn stories(&self) -> Result<Vec<Story>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, author, sent_at, text, background, foreground, attachment, viewed \
+             FROM stories ORDER BY sent_at DESC",
+        )?;
+        let rows = stmt.query_map([], story_from_row)?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
     /// Search within one conversation, newest first.
@@ -934,6 +973,66 @@ impl Writer<'_> {
                 }
                 for conv in touched {
                     changes.conversations.push(self.refresh_summary(&conv)?);
+                }
+                // stories live for 24 hours
+                let cutoff = now - crate::model::STORY_LIFETIME_MS;
+                let files: Vec<Option<String>> = self
+                    .conn
+                    .prepare("SELECT attachment FROM stories WHERE sent_at <= ?1")?
+                    .query_map([cutoff], |r| r.get(0))?
+                    .collect::<rusqlite::Result<_>>()?;
+                for a in files.into_iter().flatten() {
+                    if let Some(path) = serde_json::from_str::<crate::model::Attachment>(&a)
+                        .ok()
+                        .and_then(|a| a.local_path)
+                    {
+                        changes.removed_files.push(path);
+                    }
+                }
+                let n = self
+                    .conn
+                    .execute("DELETE FROM stories WHERE sent_at <= ?1", [cutoff])?;
+                changes.stories_changed |= n > 0;
+            }
+            Mutation::InsertStory(st) => {
+                let n = self.conn.execute(
+                    "INSERT OR IGNORE INTO stories (author, sent_at, text, background, foreground, attachment) \
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                    params![
+                        st.author.to_string(),
+                        st.sent_at,
+                        st.text,
+                        st.background.map(|v| v as i64),
+                        st.foreground.map(|v| v as i64),
+                        st.attachment.as_ref().map(serde_json::to_string).transpose()?,
+                    ],
+                )?;
+                changes.stories_changed = n == 1;
+            }
+            Mutation::MarkStoryViewed { id } => {
+                let n = self.conn.execute(
+                    "UPDATE stories SET viewed = 1 WHERE id = ?1 AND viewed = 0",
+                    [id],
+                )?;
+                changes.stories_changed = n == 1;
+            }
+            Mutation::StoryAttachmentDownloaded { id, local_path } => {
+                let att: Option<String> = self
+                    .conn
+                    .query_row("SELECT attachment FROM stories WHERE id = ?1", [id], |r| {
+                        r.get(0)
+                    })
+                    .optional()?
+                    .flatten();
+                if let Some(mut a) =
+                    att.and_then(|a| serde_json::from_str::<crate::model::Attachment>(&a).ok())
+                {
+                    a.local_path = Some(local_path);
+                    self.conn.execute(
+                        "UPDATE stories SET attachment = ?2 WHERE id = ?1",
+                        params![id, serde_json::to_string(&a)?],
+                    )?;
+                    changes.stories_changed = true;
                 }
             }
             Mutation::DeleteForMe { message_id } => {

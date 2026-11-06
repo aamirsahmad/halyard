@@ -348,7 +348,37 @@ pub fn interpret(content: &Content, ctx: &Ctx) -> Vec<Output> {
                 started,
             });
         }
-        // calls are out of scope for now; stories, null messages, etc. are ignored
+        ContentBody::StoryMessage(story) if sender != ctx.me => {
+            use presage::libsignal_service::proto::story_message::Attachment as StoryAttachment;
+            use presage::libsignal_service::proto::text_attachment::Background;
+            let mut new = signal_core::NewStory {
+                author: sender,
+                sent_at: fallback_ts,
+                text: None,
+                background: None,
+                foreground: None,
+                attachment: None,
+            };
+            match &story.attachment {
+                Some(StoryAttachment::TextAttachment(t)) => {
+                    new.text = t.text.clone();
+                    new.foreground = t.text_foreground_color;
+                    new.background = match &t.background {
+                        Some(Background::Color(c)) => Some(*c),
+                        Some(Background::Gradient(g)) => {
+                            g.colors.first().copied().or(g.start_color)
+                        }
+                        None => None,
+                    };
+                }
+                Some(StoryAttachment::FileAttachment(p)) => {
+                    new.attachment = Some(attachment_from_pointer(p))
+                }
+                None => return out,
+            }
+            out.push(Output::Mutation(Mutation::InsertStory(new)));
+        }
+        // calls are out of scope for now; null messages, etc. are ignored
         _ => {}
     }
     out
@@ -776,6 +806,33 @@ mod tests {
             panic!()
         };
         assert!(m.body.contains("can't be displayed"));
+    }
+
+    #[test]
+    fn stories_from_contacts() {
+        use presage::libsignal_service::proto::{
+            StoryMessage, TextAttachment, story_message, text_attachment,
+        };
+        let story = StoryMessage {
+            attachment: Some(story_message::Attachment::TextAttachment(TextAttachment {
+                text: Some("Hiking today!".into()),
+                text_foreground_color: Some(0xFFFFFFFF),
+                background: Some(text_attachment::Background::Color(0xFF2C6BED)),
+                ..Default::default()
+            })),
+            ..Default::default()
+        };
+        let Mutation::InsertStory(s) = only_mutation(run(&content(
+            ALICE,
+            ContentBody::StoryMessage(story.clone()),
+        ))) else {
+            panic!()
+        };
+        assert_eq!(s.text.as_deref(), Some("Hiking today!"));
+        assert_eq!(s.background, Some(0xFF2C6BED));
+        assert_eq!(s.author, ALICE);
+        // our own stories (synced from the phone) aren't shown as incoming
+        assert!(run(&content(ME, ContentBody::StoryMessage(story))).is_empty());
     }
 
     #[test]

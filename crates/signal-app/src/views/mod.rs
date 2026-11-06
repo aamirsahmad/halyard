@@ -12,6 +12,7 @@ pub mod message_menu;
 pub mod preferences;
 pub mod rich_text;
 mod sidebar;
+pub mod stories;
 
 pub use sidebar::{conversation_dom_id, conversation_element_id};
 

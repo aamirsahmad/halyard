@@ -566,3 +566,37 @@ fn audio_attachment_play_button(cx: &mut TestAppContext) {
         "{status:?}"
     );
 }
+
+#[gpui_kit::test]
+fn stories_list_and_viewer(cx: &mut TestAppContext) {
+    let h = setup(cx);
+    with_window(cx, &h, |w, cx| {
+        assert!(
+            w.try_find("stories-badge").is_some(),
+            "unviewed stories badge"
+        );
+        w.click("stories", cx);
+    });
+    with_window(cx, &h, |w, cx| {
+        assert!(w.try_find("story-list").is_some());
+        w.click(eid(format!("story-author-{DEMO_ALICE}")), cx);
+    });
+    with_window(cx, &h, |w, cx| {
+        assert!(w.try_find("story-viewer").is_some());
+        w.click("story-Next", cx);
+    });
+    cx.update(|cx| {
+        let app = h.app.read(cx);
+        let alice: Vec<_> = app
+            .stories()
+            .iter()
+            .filter(|s| s.author == DEMO_ALICE)
+            .collect();
+        assert_eq!(alice.len(), 2);
+        assert!(
+            alice.iter().all(|s| s.viewed),
+            "both of Alice's stories viewed"
+        );
+        assert_eq!(app.unviewed_story_count(), 1, "Carol's story is still new");
+    });
+}

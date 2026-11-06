@@ -40,6 +40,7 @@ impl SignalApp {
             ListMode::Chats => "Chats",
             ListMode::Archived => "Archived chats",
             ListMode::NewChat => "New chat",
+            ListMode::Stories => "Stories",
         };
         let me = self.me();
         let header = div()
@@ -83,7 +84,35 @@ impl SignalApp {
                     .child(title),
             )
             .when(self.list_mode == ListMode::Chats, |d| {
+                let unviewed = self.unviewed_story_count();
                 d.child(
+                    div()
+                        .relative()
+                        .child(
+                            Button::new("stories")
+                                .ghost()
+                                .small()
+                                .icon(Icon::new(Icons::CircleDashed))
+                                .tooltip("Stories")
+                                .on_click(cx.listener(|this, _, window, cx| {
+                                    this.set_list_mode(ListMode::Stories, window, cx)
+                                })),
+                        )
+                        .when(unviewed > 0, |d| {
+                            d.child(
+                                div()
+                                    .id("stories-badge")
+                                    .absolute()
+                                    .top(px(2.))
+                                    .right(px(2.))
+                                    .size(px(8.))
+                                    .rounded_full()
+                                    .bg(p.badge)
+                                    .test_support(),
+                            )
+                        }),
+                )
+                .child(
                     Button::new("new-chat")
                         .ghost()
                         .small()
@@ -110,6 +139,7 @@ impl SignalApp {
 
         let list: AnyElement = match self.list_mode {
             ListMode::NewChat => self.render_contact_picker(p, cx),
+            ListMode::Stories => self.render_story_list(p, cx),
             _ => self.render_conversation_list(p, cx),
         };
 

@@ -131,6 +131,24 @@ pub enum MessageKind {
     TimerChanged { secs: Option<u32> },
 }
 
+/// Stories disappear 24 hours after they were posted.
+pub const STORY_LIFETIME_MS: Millis = 24 * 60 * 60 * 1000;
+
+/// A story posted by a contact (text on a background, or a photo/video).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Story {
+    pub id: i64,
+    pub author: Uuid,
+    pub sent_at: Millis,
+    pub text: Option<String>,
+    /// Background colour (0xAARRGGBB) of a text story; a gradient's start colour.
+    pub background: Option<u32>,
+    /// Text colour (0xAARRGGBB) of a text story.
+    pub foreground: Option<u32>,
+    pub attachment: Option<Attachment>,
+    pub viewed: bool,
+}
+
 /// A link preview card attached to a message.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LinkPreview {

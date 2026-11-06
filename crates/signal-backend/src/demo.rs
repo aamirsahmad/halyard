@@ -248,6 +248,31 @@ pub fn seed(db: &mut Database, now: Millis) -> signal_core::db::Result<()> {
         false,
         "Hi! We met at the conference — is this the right number?",
     )))?;
+    // stories from contacts (they expire after 24 hours)
+    db.apply(Mutation::InsertStory(signal_core::NewStory {
+        author: DEMO_ALICE,
+        sent_at: now - 2 * 60 * min,
+        text: Some("Fresh snow on the trail ❄️".into()),
+        background: Some(0xFF2C6BED),
+        foreground: Some(0xFFFFFFFF),
+        attachment: None,
+    }))?;
+    db.apply(Mutation::InsertStory(signal_core::NewStory {
+        author: DEMO_ALICE,
+        sent_at: now - 90 * min,
+        text: Some("Who's bringing hot chocolate?".into()),
+        background: Some(0xFFB8057C),
+        foreground: Some(0xFFFFFFFF),
+        attachment: None,
+    }))?;
+    db.apply(Mutation::InsertStory(signal_core::NewStory {
+        author: DEMO_CAROL,
+        sent_at: now - 5 * 60 * min,
+        text: Some("New recipe blog post is up!".into()),
+        background: Some(0xFF067906),
+        foreground: Some(0xFFFFFFFF),
+        attachment: None,
+    }))?;
     db.set_pinned(&group, true)?;
     Ok(())
 }

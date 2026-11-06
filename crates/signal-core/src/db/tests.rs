@@ -871,3 +871,49 @@ fn timer_notice_preview_names_the_author() {
         "Alice set the disappearing message timer to 1 day."
     );
 }
+
+#[test]
+fn stories_insert_view_expire() {
+    use crate::protocol::NewStory;
+    let mut db = db();
+    let now = 10 * crate::model::STORY_LIFETIME_MS;
+    let story = |at| NewStory {
+        author: ALICE,
+        sent_at: at,
+        text: Some("hello".into()),
+        background: Some(0xFF2C6BED),
+        foreground: None,
+        attachment: None,
+    };
+    assert!(
+        db.apply(Mutation::InsertStory(story(now - 1000)))
+            .unwrap()
+            .stories_changed
+    );
+    assert!(
+        !db.apply(Mutation::InsertStory(story(now - 1000)))
+            .unwrap()
+            .stories_changed,
+        "dedup"
+    );
+    db.apply(Mutation::InsertStory(story(
+        now - crate::model::STORY_LIFETIME_MS - 5,
+    )))
+    .unwrap();
+    let all = db.stories().unwrap();
+    assert_eq!(all.len(), 2);
+    assert_eq!(all[0].background, Some(0xFF2C6BED));
+    let ch = db
+        .apply(Mutation::MarkStoryViewed { id: all[0].id })
+        .unwrap();
+    assert!(
+        ch.clone()
+            .into_events()
+            .contains(&crate::BackendEvent::StoriesChanged)
+    );
+    let ch = db.apply(Mutation::ExpireDue { now }).unwrap();
+    assert!(ch.stories_changed);
+    let left = db.stories().unwrap();
+    assert_eq!(left.len(), 1);
+    assert!(left[0].viewed);
+}

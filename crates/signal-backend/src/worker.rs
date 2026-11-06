@@ -146,6 +146,10 @@ enum Internal {
         name: Option<String>,
     },
     Error(String),
+    StoryAttachmentDownloaded {
+        story_id: i64,
+        path: Option<PathBuf>,
+    },
 }
 
 struct Worker {
@@ -477,6 +481,15 @@ impl Worker {
                 }
             }
             Internal::Error(e) => self.emit(BackendEvent::Error(e)),
+            Internal::StoryAttachmentDownloaded { story_id, path } => {
+                if let Some(path) = path {
+                    let ch = self.apply(Mutation::StoryAttachmentDownloaded {
+                        id: story_id,
+                        local_path: path.to_string_lossy().into_owned(),
+                    });
+                    self.emit_changes(ch);
+                }
+            }
             Internal::Profile { uuid, name } => {
                 if let Some(name) = name.filter(|n| !n.trim().is_empty()) {
                     let ch = self.apply(Mutation::UpsertContact(Contact {
@@ -530,7 +543,11 @@ impl Worker {
                                 Mutation::InsertMessage(n) if !n.outgoing => Some(n.author),
                                 _ => None,
                             };
+                            let is_story = matches!(m, Mutation::InsertStory(_));
                             let changes = self.apply(m);
+                            if is_story && changes.stories_changed {
+                                self.download_story_attachments();
+                            }
                             for msg in &changes.messages {
                                 if !msg.outgoing {
                                     self.download_attachments(msg.id, &msg.attachments);
@@ -544,6 +561,44 @@ impl Worker {
                     }
                 }
             }
+        }
+    }
+
+    /// Downloads attachments of newly received stories.
+    fn download_story_attachments(&self) {
+        let Some(manager) = self.manager.clone() else {
+            return;
+        };
+        for story in self.db.stories().unwrap_or_default() {
+            let Some(att) = story.attachment.filter(|a| a.local_path.is_none()) else {
+                continue;
+            };
+            let Some(pointer) = interpret::pointer_from_attachment(&att) else {
+                continue;
+            };
+            let (manager, tx) = (manager.clone(), self.internal_tx.clone());
+            let store = self.config.paths.attachment_store(&self.config.db_key);
+            let file_name = format!(
+                "story-{}-{}",
+                story.id,
+                sanitize_file_name(&att.display_name())
+            );
+            let story_id = story.id;
+            spawn_local(async move {
+                let path = match manager.get_attachment(&pointer).await {
+                    Ok(bytes) => {
+                        tokio::task::spawn_blocking(move || store.write(&file_name, &bytes))
+                            .await
+                            .ok()
+                            .and_then(Result::ok)
+                    }
+                    Err(e) => {
+                        tracing::warn!(%e, "failed to download story");
+                        None
+                    }
+                };
+                let _ = tx.send(Internal::StoryAttachmentDownloaded { story_id, path });
+            });
         }
     }
 

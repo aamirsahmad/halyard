@@ -285,7 +285,9 @@ impl ChatState {
                     fx.timeline_changed = true;
                 }
             }
-            BackendEvent::ContactsChanged | BackendEvent::SafetyNumber { .. } => {}
+            BackendEvent::ContactsChanged
+            | BackendEvent::StoriesChanged
+            | BackendEvent::SafetyNumber { .. } => {}
             BackendEvent::Error(e) => self.last_error = Some(e),
         }
         fx

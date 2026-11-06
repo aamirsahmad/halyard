@@ -11,6 +11,7 @@ gpui_kit::assets::icon_assets!(
         ArchiveRestore,
         BellOff,
         CheckCheck,
+        CircleDashed,
         Clock,
         Download,
         FaceSlightlySmiling,
