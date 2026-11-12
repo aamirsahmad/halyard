@@ -19,17 +19,16 @@ comparison. Highlights:
 | Area | Features |
 |---|---|
 | Account | Link as a secondary device (QR code), edit your profile name and about, device info, unlink |
-| Messaging | 1:1 and group (v2) chats, Note to Self, replies, reactions (quick bar + full emoji picker), edit (24 h) with history, delete for me / for everyone, forward, message info |
+| Messaging | 1:1 and group (v2) chats, leave group, membership notices, Note to Self, replies, reactions (quick bar + full emoji picker), edit (24 h) with history, delete for me / for everyone, forward, message info |
 | Rich content | Contact and group photos, bold / italic / strikethrough / monospace / spoiler formatting, @mentions with autocomplete, view-once media, clickable links, link-preview cards, stickers, shared contacts, image viewer with Save As, file attachments (picker or drag and drop, up to 100 MB) |
-| Privacy | Disappearing messages (timer, countdown, notices), message requests (accept / block / delete), block / unblock, safety numbers, read receipts and typing indicators toggles, notification content setting |
-| Chat list | Pin, timed mute, mark read/unread, archive, delete, drafts, typing previews, search across chats and messages, search within a chat, unread divider |
-| Stories & media | Contacts' stories (text and photo, 24 h) with a viewer and replies; voice notes play in the app and can be recorded (sent as WAV) |
+| Privacy | Disappearing messages (timer, countdown, notices), message requests from your phone's accepted/blocked state (accept / block / delete), block / unblock, safety numbers, read receipts and typing indicators toggles, notification content setting |
+| Chat list | Collapses to avatars in narrow windows, pin, timed mute, mark read/unread, archive, delete, drafts, typing previews, search across chats and messages, search within a chat, unread divider |
+| Stories & media | Contacts' stories (text and photo, 24 h) with a viewer and replies; post your own text or photo stories; voice notes play in the app and are recorded as MP3 like Signal Desktop |
 | App | Zoom (⌘/Ctrl + / − / 0), light / dark / system themes with Signal's accent, desktop notifications, unread count in the title, keyboard shortcuts (⌘/Ctrl+N, ⌘/Ctrl+F, Alt+↑/↓, ⌘/Ctrl+, , ⌘/Ctrl+/, Esc) |
 | Storage | Encrypted (SQLCipher) protocol and message stores, AES-256-GCM encrypted attachment store |
 
-Not supported yet: registering as a primary device, phone-number contact discovery, leaving
-groups, posting stories. Recorded voice notes are sent as WAV rather than AAC. Voice and video
-calls are planned.
+Not supported yet: registering as a primary device and phone-number contact discovery (this is a
+linked device, like Signal Desktop). Voice and video calls are planned.
 
 ## Architecture
 
