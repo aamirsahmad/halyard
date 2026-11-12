@@ -1,97 +1,77 @@
 # Contributing to Halyard
 
-Thanks for helping! Halyard is an unofficial desktop client for Signal, written in Rust with
-GPUI. Bug reports, fixes, features, tests and docs are all welcome.
+Thank you for your help. We welcome bug reports, fixes, features, tests and documentation.
 
-Please read the [Code of Conduct](CODE_OF_CONDUCT.md) first. To report a security problem, follow
-[SECURITY.md](SECURITY.md); don't open a public issue.
+Read the [Code of Conduct](CODE_OF_CONDUCT.md) first. Do not report security problems in public
+issues. Use the procedure in [SECURITY.md](SECURITY.md).
 
 ## Before you start
 
-* **Small fixes** (typos, obvious bugs, tests): open a pull request directly.
-* **Features or larger changes**: open an issue first so we can agree on the approach. The goal
-  is to match [Signal Desktop](https://github.com/signalapp/Signal-Desktop)'s behaviour, and
-  [PARITY.md](PARITY.md) tracks where we stand.
-* **Calls** are out of scope for now.
+- For small fixes, open a pull request.
+- For features and large changes, open an issue first. Then we can agree on the design.
+- Halyard copies the behaviour of [Signal Desktop](https://github.com/signalapp/Signal-Desktop).
+  [PARITY.md](PARITY.md) shows the status of each feature.
+- Voice and video calls are out of scope at this time.
 
-## Setting up
+## Set up
 
-You need the Rust toolchain from `rust-toolchain.toml` (rustup installs it automatically) and:
-
-* **macOS**: Xcode command line tools and `brew install protobuf`.
-* **Linux** (Debian/Ubuntu): `script/install-linux-deps.sh`.
+Install `protoc`. On macOS, run `brew install protobuf`. On Debian or Ubuntu, run
+`script/install-linux-deps.sh`. Rustup installs the correct Rust version automatically.
 
 ```sh
-cargo run -p signal-app -- --demo   # the UI with sample data, no Signal account needed
+cargo run -p signal-app -- --demo   # start with sample data, no Signal account
 ```
 
-The demo mode is the easiest way to work on the UI. Only link a real account when you need to
-test networking, and use a test account or `--staging` (Signal's staging servers) for anything
-experimental.
+Use the demo mode for UI work. Use a test account or `--staging` for network work.
 
-## Project layout
+## Code structure
 
-| Crate | What lives there |
+| Crate | Contents |
 |---|---|
-| `crates/signal-core` | Domain model, SQLCipher database and migrations, UI state reducer, formatting. No network, no UI. |
-| `crates/signal-backend` | The presage/libsignal worker thread, protocol interpretation (`interpret.rs`, pure and unit-tested), the demo backend. |
-| `crates/signal-app` | The GPUI Kit UI and the `halyard` binary. |
+| `signal-core` | Data model, SQLCipher database and migrations, UI state. No network and no UI. |
+| `signal-backend` | presage worker thread, protocol interpretation (`interpret.rs`), demo backend. |
+| `signal-app` | GPUI Kit UI and the `halyard` binary. |
 
-How the pieces fit together:
+- The backend runs on its own thread, because presage's `Manager` is `!Send`. The UI and the
+  backend send only `BackendCommand` and `BackendEvent` messages (`signal-core/src/protocol.rs`).
+- `interpret.rs` changes received content into database `Mutation`s. It is a pure function.
+  The database applies each mutation atomically and sends the changed rows to the UI.
+- The UI state (`ChatState`) returns effects for each event. Thus you can test UI logic
+  without a window.
 
-* presage's `Manager` is `!Send`, so the backend runs on its own thread with a single-threaded
-  tokio runtime and a `LocalSet`. The UI and backend only talk through `BackendCommand` and
-  `BackendEvent` (`signal-core/src/protocol.rs`).
-* The backend turns decrypted `Content` into `Mutation`s (`signal-backend/src/interpret.rs`, a
-  pure function). Mutations are applied atomically to the database (`signal-core/src/db.rs`),
-  and the changed rows go to the UI as events.
-* The UI keeps a `ChatState` (`signal-core/src/state.rs`). Applying an event returns effects
-  (mark read, notify, re-render), so UI logic can be tested without a window.
+## Rules for changes
 
-Data lives in `protocol.db3` (presage's keys, sessions, contacts and groups; SQLCipher),
-`messages.db3` (conversations and messages; SQLCipher), `attachments/*.sga` (AES-256-GCM with
-a key derived from the database key) and `config.json` (the random database key, mode `0600`).
+- Add or update tests:
+  - protocol handling in `signal-backend/src/interpret.rs`;
+  - database changes in `signal-core/src/db/tests.rs`;
+  - UI behaviour in `signal-app/tests/`.
+- Add a new migration for each schema change. Do not change an old migration.
+- For visual changes, set `SCREENSHOT_DIR`, run the rendering test and examine the screenshots.
+- Add dependencies only when necessary. Each dependency must be compatible with AGPL-3.0.
+- Do not add code that sends bulk or automated messages, creates accounts or collects data
+  about other users. Such code breaks Signal's terms of service.
+- Do not use Signal's name, logo or trademarks for this app. "A client for Signal" is
+  correct.
 
-## Making changes
-
-* **Tests**: add or update tests with your change.
-  * Protocol handling goes in `signal-backend/src/interpret.rs` tests.
-  * Database changes go in `signal-core/src/db/tests.rs`. Schema changes need a new migration, never an edit to an old one.
-  * UI behaviour goes in `signal-app/tests/` (headless windows).
-  * Visual changes: run the rendering test with `SCREENSHOT_DIR` set and look at the screenshots.
-* **Style**: `cargo fmt`, and code must pass `cargo clippy --workspace --all-targets -- -D warnings`.
-* **Dependencies**: keep new dependencies to a minimum, and they must be AGPL-3.0 compatible.
-* **Signal's servers**: don't add anything that sends bulk or automated messages, creates
-  accounts, or collects data about other users. These break Signal's terms of service.
-* **Branding**: don't use Signal's name, logo or trademarks for this app. Saying "a client for
-  Signal" is fine.
-
-Before opening a pull request, run:
+Before you open a pull request, run these commands:
 
 ```sh
 cargo fmt --all
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --locked
-script/test-linux.sh   # optional on macOS: the same suite in a Linux container (Docker)
-```
-
-Other test commands:
-
-```sh
-SCREENSHOT_DIR=/tmp/shots cargo test -p signal-app --test rendering  # save screenshots of every screen
-cargo test -p signal-backend --test worker -- --ignored              # live: fetch a real linking URL
+script/test-linux.sh                                                 # optional, needs Docker
+SCREENSHOT_DIR=/tmp/shots cargo test -p signal-app --test rendering  # save screenshots
 ```
 
 CI runs the same checks on macOS and Linux.
 
 ## Pull requests
 
-* Keep each pull request focused on one change, and explain what changed and why.
-* Link the issue it fixes.
-* Include screenshots for UI changes, ideally light and dark.
-* Add a line to the `Unreleased` section of [CHANGELOG.md](CHANGELOG.md) for anything users will notice.
+- Make one change in each pull request. Tell what changed and why.
+- Link the related issue.
+- For UI changes, add screenshots in the light and dark themes.
+- For changes that users can see, add a line to `Unreleased` in [CHANGELOG.md](CHANGELOG.md).
 
 ## Licence
 
-Halyard is licensed under the [GNU AGPL v3.0 only](LICENSE). By contributing, you agree that your
-contribution is licensed under the same terms.
+Halyard uses the [GNU AGPL v3.0 only](LICENSE). Your contributions use the same licence.

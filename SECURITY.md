@@ -1,37 +1,32 @@
 # Security policy
 
-Halyard handles end-to-end encrypted messages and their keys, so security reports matter a lot.
+## Report a vulnerability
 
-## Reporting a vulnerability
+Do not open a public issue. Use
+[Report a vulnerability](https://github.com/aamirsahmad/halyard/security/advisories/new) on GitHub.
 
-**Don't open a public issue.** Report privately through GitHub:
-[Security → Report a vulnerability](https://github.com/aamirsahmad/halyard/security/advisories/new).
+Give this information:
 
-Please include:
+- the problem and its effect;
+- the steps or code that show the problem;
+- the Halyard version or commit, and your operating system.
 
-* what the problem is and what an attacker could do with it;
-* the steps or a proof of concept to reproduce it;
-* the affected version or commit, and your operating system.
+We reply in a few days. We agree a disclosure date with you. We give you credit in the advisory,
+if you want it.
 
-We aim to acknowledge reports within a few days and to agree a disclosure date with you. We'll
-credit you in the advisory unless you'd rather we didn't.
+## Scope
 
-## What's in scope
+In scope: Halyard's code. This includes local encryption and keys, the processing of received
+content, the UI and the packages.
 
-* Halyard's own code: local storage encryption (the SQLCipher databases, the attachment store
-  and key handling), how protocol content is processed, the UI, and the packaging.
-* How Halyard uses presage, libsignal-service-rs and libsignal.
+Report problems in other projects to those projects:
 
-Vulnerabilities in those libraries themselves belong to their projects:
+- libsignal, the Signal protocol and Signal's servers: [signal.org/security](https://signal.org/security/);
+- [presage](https://github.com/whisperfish/presage) and
+  [libsignal-service-rs](https://github.com/whisperfish/libsignal-service-rs): their repositories.
 
-* [libsignal](https://github.com/signalapp/libsignal) and the Signal protocol or servers: see
-  [Signal's security page](https://signal.org/security/).
-* [presage](https://github.com/whisperfish/presage) and
-  [libsignal-service-rs](https://github.com/whisperfish/libsignal-service-rs): those
-  repositories.
-
-If you're not sure where a problem belongs, report it here and we'll help route it.
+If you are not sure, report the problem here. We help you find the correct project.
 
 ## Supported versions
 
-Only the latest release gets security fixes.
+We fix security problems in the latest release only.
