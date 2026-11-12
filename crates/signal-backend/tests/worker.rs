@@ -86,7 +86,7 @@ fn linking_produces_a_provisioning_url() {
     })
     .unwrap();
     handle.send(BackendCommand::Link {
-        device_name: "signal-gpui test".into(),
+        device_name: "halyard test".into(),
     });
     let ev = wait_for(&events, Duration::from_secs(60), |e| {
         matches!(

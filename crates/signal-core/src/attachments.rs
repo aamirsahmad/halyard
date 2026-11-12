@@ -37,6 +37,8 @@ fn invalid(msg: &'static str) -> io::Error {
 impl AttachmentStore {
     /// `secret` is the database key; a dedicated key is derived from it.
     pub fn new(dir: impl Into<PathBuf>, secret: &[u8]) -> Self {
+        // salt from the app's former name; changing it would make existing
+        // attachments undecryptable
         let hk = Hkdf::<Sha256>::new(Some(b"signal-gpui"), secret);
         let mut key = [0u8; 32];
         hk.expand(b"attachment-store-v1", &mut key)

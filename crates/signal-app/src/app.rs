@@ -83,7 +83,7 @@ impl Notifier for DesktopNotifier {
             if let Err(e) = notify_rust::Notification::new()
                 .summary(&title)
                 .body(&body)
-                .appname("Signal")
+                .appname("Halyard")
                 .show()
             {
                 tracing::warn!(%e, "failed to show notification");
@@ -207,7 +207,7 @@ impl SignalApp {
             let host = hostname();
             InputState::new(window, cx)
                 .placeholder("Device name")
-                .default_value(format!("Signal GPUI on {host}"))
+                .default_value(format!("Halyard on {host}"))
         });
         let scroller = cx.new(|cx| MessageScrollerState::new(0, cx));
         let weak = cx.entity().downgrade();
@@ -603,9 +603,9 @@ impl SignalApp {
     fn update_title(&self, window: &mut Window) {
         let unread = self.state.total_unread();
         let title = if unread > 0 {
-            format!("Signal ({unread})")
+            format!("Halyard ({unread})")
         } else {
-            "Signal".to_string()
+            "Halyard".to_string()
         };
         window.set_window_title(&title);
     }
@@ -1289,7 +1289,7 @@ impl SignalApp {
     pub fn start_linking(&mut self, cx: &mut Context<Self>) {
         let name = self.device_name.read(cx).value().trim().to_string();
         let device_name = if name.is_empty() {
-            format!("Signal GPUI on {}", hostname())
+            format!("Halyard on {}", hostname())
         } else {
             name
         };

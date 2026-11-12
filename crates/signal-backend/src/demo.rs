@@ -285,7 +285,7 @@ pub fn demo_account() -> AccountInfo {
         aci: DEMO_ME,
         phone_number: Some("+1 555 0100".into()),
         device_id: 2,
-        device_name: Some("Signal GPUI (demo)".into()),
+        device_name: Some("Halyard (demo)".into()),
     }
 }
 

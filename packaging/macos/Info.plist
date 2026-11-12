@@ -2,10 +2,10 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>CFBundleName</key><string>Signal GPUI</string>
-  <key>CFBundleDisplayName</key><string>Signal GPUI</string>
-  <key>CFBundleIdentifier</key><string>org.signal-gpui.Signal</string>
-  <key>CFBundleExecutable</key><string>signal-gpui</string>
+  <key>CFBundleName</key><string>Halyard</string>
+  <key>CFBundleDisplayName</key><string>Halyard</string>
+  <key>CFBundleIdentifier</key><string>org.halyard.Halyard</string>
+  <key>CFBundleExecutable</key><string>halyard</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleVersion</key><string>__VERSION__</string>
   <key>CFBundleShortVersionString</key><string>__VERSION__</string>
@@ -13,6 +13,6 @@
   <key>NSHighResolutionCapable</key><true/>
   <key>LSApplicationCategoryType</key><string>public.app-category.social-networking</string>
   <key>NSUserNotificationAlertStyle</key><string>banner</string>
-  <key>NSMicrophoneUsageDescription</key><string>Signal GPUI uses the microphone to record voice messages.</string>
+  <key>NSMicrophoneUsageDescription</key><string>Halyard uses the microphone to record voice messages.</string>
 </dict>
 </plist>

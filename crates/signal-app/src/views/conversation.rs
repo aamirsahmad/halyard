@@ -784,7 +784,7 @@ fn render_welcome(p: &Palette) -> AnyElement {
             div()
                 .text_size(rem_px(22.))
                 .font_weight(FontWeight::SEMIBOLD)
-                .child("Welcome to Signal"),
+                .child("Welcome to Halyard"),
         )
         .child(
             div()

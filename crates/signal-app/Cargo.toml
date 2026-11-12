@@ -10,7 +10,7 @@ name = "signal_app"
 path = "src/lib.rs"
 
 [[bin]]
-name = "signal-gpui"
+name = "halyard"
 path = "src/main.rs"
 
 [dependencies]

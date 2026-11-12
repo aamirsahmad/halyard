@@ -1,4 +1,4 @@
-//! Core of the Signal GPUI client: domain model, encrypted local database,
+//! Core of the Halyard client: domain model, encrypted local database,
 //! UI state reducer and presentation helpers. This crate has no dependency on
 //! the network layer nor on the UI toolkit, which keeps it fully unit-testable.
 

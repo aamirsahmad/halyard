@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# System packages needed to build and test Signal GPUI on Debian/Ubuntu.
+# System packages needed to build and test Halyard on Debian/Ubuntu.
 set -euo pipefail
 SUDO=$(command -v sudo || true)
 $SUDO apt-get update

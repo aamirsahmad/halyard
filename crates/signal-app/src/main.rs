@@ -1,4 +1,4 @@
-//! Signal GPUI desktop client entry point.
+//! Halyard desktop client entry point.
 
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -14,10 +14,10 @@ use signal_backend::{BackendConfig, DataPaths, EventSink, SignalServers};
 use signal_core::{BackendEvent, Database};
 
 const USAGE: &str = "\
-Signal GPUI — a Signal messenger client
+Halyard — an unofficial desktop client for Signal (not affiliated with Signal)
 
 USAGE:
-    signal-gpui [OPTIONS]
+    halyard [OPTIONS]
 
 OPTIONS:
     --demo              Run with sample data, without a Signal account
@@ -51,7 +51,7 @@ fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Option<Args>, St
                 return Ok(None);
             }
             "-V" | "--version" => {
-                println!("signal-gpui {}", env!("CARGO_PKG_VERSION"));
+                println!("halyard {}", env!("CARGO_PKG_VERSION"));
                 return Ok(None);
             }
             other => return Err(format!("unknown argument: {other}\n\n{USAGE}")),
@@ -70,9 +70,31 @@ fn init_logging() {
 }
 
 fn default_data_dir() -> anyhow::Result<PathBuf> {
-    let dirs = directories::ProjectDirs::from("org", "signal-gpui", "Signal GPUI")
+    let dirs = directories::ProjectDirs::from("org", "halyard", "Halyard")
         .context("could not determine a data directory")?;
-    Ok(dirs.data_dir().to_path_buf())
+    let dir = dirs.data_dir().to_path_buf();
+    // the app used to be called "Signal GPUI": keep existing data
+    if let Some(old) = directories::ProjectDirs::from("org", "signal-gpui", "Signal GPUI") {
+        adopt_old_data_dir(old.data_dir(), &dir)?;
+    }
+    Ok(dir)
+}
+
+/// Moves `old` to `new` when only the old data directory exists.
+fn adopt_old_data_dir(old: &std::path::Path, new: &std::path::Path) -> anyhow::Result<()> {
+    if new.exists() || !old.exists() {
+        return Ok(());
+    }
+    if let Some(parent) = new.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::rename(old, new).with_context(|| {
+        format!(
+            "could not move data from {} to {}",
+            old.display(),
+            new.display()
+        )
+    })
 }
 
 fn main() -> anyhow::Result<()> {
@@ -139,7 +161,7 @@ fn main() -> anyhow::Result<()> {
 
         let options = WindowOptions {
             titlebar: Some(TitlebarOptions {
-                title: Some("Signal".into()),
+                title: Some("Halyard".into()),
                 ..Default::default()
             }),
             window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
@@ -147,8 +169,8 @@ fn main() -> anyhow::Result<()> {
                 size(px(1120.), px(780.)),
                 cx,
             ))),
-            window_min_size: Some(size(px(760.), px(480.))),
-            app_id: Some("org.signal-gpui.Signal".into()),
+            window_min_size: Some(size(px(480.), px(420.))),
+            app_id: Some("org.halyard.Halyard".into()),
             ..Default::default()
         };
         let opened = gpui_kit::open_window(options, cx, move |window, cx| {
@@ -173,6 +195,28 @@ fn main() -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn adopts_data_from_the_former_app_name() {
+        let tmp = tempfile::tempdir().unwrap();
+        let old = tmp.path().join("old");
+        let new = tmp.path().join("nested").join("new");
+        std::fs::create_dir_all(&old).unwrap();
+        std::fs::write(old.join("messages.db3"), b"x").unwrap();
+        adopt_old_data_dir(&old, &new).unwrap();
+        assert!(!old.exists());
+        assert_eq!(std::fs::read(new.join("messages.db3")).unwrap(), b"x");
+
+        // an existing new directory is never replaced
+        std::fs::create_dir_all(&old).unwrap();
+        std::fs::write(old.join("stale"), b"y").unwrap();
+        adopt_old_data_dir(&old, &new).unwrap();
+        assert!(old.join("stale").exists() && !new.join("stale").exists());
+
+        // nothing to adopt
+        adopt_old_data_dir(&tmp.path().join("missing"), &tmp.path().join("other")).unwrap();
+        assert!(!tmp.path().join("other").exists());
+    }
 
     fn parse(v: &[&str]) -> Result<Option<Args>, String> {
         parse_args(v.iter().map(|s| s.to_string()))

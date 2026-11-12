@@ -38,7 +38,7 @@ impl NotificationContent {
         match self {
             Self::NameAndMessage => (title.to_string(), body.to_string()),
             Self::NameOnly => (title.to_string(), "New message".to_string()),
-            Self::NoNameOrMessage => ("Signal".to_string(), "New message".to_string()),
+            Self::NoNameOrMessage => ("Halyard".to_string(), "New message".to_string()),
         }
     }
 }
@@ -204,7 +204,7 @@ mod tests {
         );
         assert_eq!(
             NotificationContent::NoNameOrMessage.redact("Alice", "secret"),
-            ("Signal".into(), "New message".into())
+            ("Halyard".into(), "New message".into())
         );
     }
 }

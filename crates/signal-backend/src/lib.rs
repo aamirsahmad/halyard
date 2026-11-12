@@ -11,7 +11,7 @@ pub mod storage;
 pub mod worker;
 
 /// User agent for requests this crate makes itself.
-pub const USER_AGENT: &str = concat!("signal-gpui/", env!("CARGO_PKG_VERSION"));
+pub const USER_AGENT: &str = concat!("halyard/", env!("CARGO_PKG_VERSION"));
 
 pub use paths::DataPaths;
 pub use presage;

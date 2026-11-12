@@ -1,6 +1,6 @@
-# Signal GPUI
+# Halyard
 
-A native Signal messenger client for **macOS and Linux**, written in Rust.
+An unofficial, native desktop client for the Signal messenger on **macOS and Linux**, written in Rust.
 The UI is built with [GPUI](https://www.gpui.rs/) via [GPUI Kit](https://gpui-kit.com/) and
 modelled on [Signal Desktop](https://github.com/signalapp/Signal-Desktop). The Signal protocol
 comes from [libsignal](https://github.com/signalapp/libsignal), through
@@ -9,7 +9,9 @@ comes from [libsignal](https://github.com/signalapp/libsignal), through
 
 This version supports messaging only. Voice and video calls are planned.
 
-> This is an independent project. It is not affiliated with or endorsed by Signal Messenger LLC.
+> Halyard is an independent project. It is not affiliated with or endorsed by Signal Messenger LLC
+> or the Signal Technology Foundation. "Signal" is a trademark of the Signal Technology Foundation.
+> Signal may restrict access for third-party clients at any time; use it at your own risk.
 
 ## Features
 
@@ -38,7 +40,7 @@ crates/
                    timeline grouping, time formatting (no network, no UI)
   signal-backend   presage/libsignal worker on its own thread; interprets protocol content
                    into DB mutations; demo backend with sample data
-  signal-app       GPUI Kit UI (`signal-gpui` binary)
+  signal-app       GPUI Kit UI (`halyard` binary)
 ```
 
 * presage's `Manager` is `!Send`, so the backend runs on a dedicated thread with a
@@ -54,8 +56,9 @@ crates/
 
 ### Data and security
 
-All data lives in the platform data directory (`~/Library/Application Support/org.signal-gpui.Signal-GPUI`
-on macOS, `~/.local/share/signalgpui` on Linux), or in `--data-dir`:
+All data lives in the platform data directory (`~/Library/Application Support/org.halyard.Halyard`
+on macOS, `~/.local/share/halyard` on Linux; data from the app's former name, Signal GPUI, is
+moved there on first launch), or in `--data-dir`:
 
 | File | Contents | Protection |
 |---|---|---|
@@ -100,10 +103,10 @@ Options: `--data-dir <PATH>`, `--staging` (Signal's staging servers), `--help`. 
 
 ### Packaging
 
-* macOS: `script/bundle-macos.sh` builds `target/release/bundle/Signal GPUI.app`. Sign and
+* macOS: `script/bundle-macos.sh` builds `target/release/bundle/Halyard.app`. Sign and
   notarize it with your Developer ID before you distribute it.
-* Linux: install `target/release/signal-gpui` into your `PATH` and
-  `packaging/linux/signal-gpui.desktop` into `~/.local/share/applications/`.
+* Linux: install `target/release/halyard` into your `PATH` and
+  `packaging/linux/halyard.desktop` into `~/.local/share/applications/`.
 
 ## Testing
 

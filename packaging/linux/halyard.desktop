@@ -1,11 +1,11 @@
 [Desktop Entry]
 Type=Application
-Name=Signal GPUI
+Name=Halyard
 GenericName=Private Messenger
-Comment=Signal messenger client built with GPUI
-Exec=signal-gpui %U
-Icon=signal-gpui
+Comment=Unofficial desktop client for Signal, built with GPUI
+Exec=halyard %U
+Icon=halyard
 Terminal=false
 Categories=Network;InstantMessaging;Chat;
-StartupWMClass=org.signal-gpui.Signal
+StartupWMClass=org.halyard.Halyard
 Keywords=signal;chat;messenger;encrypted;
