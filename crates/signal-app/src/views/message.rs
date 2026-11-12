@@ -161,6 +161,7 @@ fn render_message(
         .flex_col()
         .max_w(rem_px(MAX_BUBBLE_WIDTH))
         .min_w(rem_px(60.))
+        .flex_shrink_1()
         .px_3()
         .py_2()
         .gap_1()
@@ -483,15 +484,22 @@ fn render_message(
             )
     });
 
+    // min_w_0 all the way down so a long bubble shrinks to the pane width
+    // instead of overflowing it when the window is narrow
     let column = div()
         .flex()
         .flex_col()
+        .flex_shrink_1()
+        .min_w_0()
+        .max_w_full()
         .when(outgoing, |d| d.items_end())
         .child(
             div()
                 .flex()
                 .items_center()
                 .gap_1()
+                .min_w_0()
+                .max_w_full()
                 .when(outgoing, |d| d.flex_row_reverse())
                 .child(bubble)
                 .children(actions),

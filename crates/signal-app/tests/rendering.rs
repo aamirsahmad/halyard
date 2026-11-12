@@ -18,7 +18,9 @@ mod rendering {
     use signal_app::assets::Assets;
     use signal_app::{RecordingSink, SignalApp};
     use signal_backend::demo::{DEMO_ALICE, DEMO_GROUP, demo_account, seed};
-    use signal_core::{AccountState, BackendEvent, ConversationId, Database, now_millis};
+    use signal_core::{
+        AccountState, BackendEvent, ConversationId, Database, Mutation, NewMessage, now_millis,
+    };
 
     fn context() -> HeadlessAppContext {
         let mut cx = HeadlessAppContext::with_platform(
@@ -38,6 +40,17 @@ mod rendering {
         setup: impl FnOnce(&mut SignalApp, &mut gpui_kit::Window, &mut gpui_kit::Context<SignalApp>)
         + 'static,
     ) -> image::RgbaImage {
+        capture_sized(name, mode, 1120., |_| {}, setup)
+    }
+
+    fn capture_sized(
+        name: &str,
+        mode: ThemeMode,
+        width: f32,
+        prepare: impl FnOnce(&mut Database),
+        setup: impl FnOnce(&mut SignalApp, &mut gpui_kit::Window, &mut gpui_kit::Context<SignalApp>)
+        + 'static,
+    ) -> image::RgbaImage {
         let mut cx = context();
         cx.update(|cx| {
             Theme::change(mode, None, cx);
@@ -46,6 +59,7 @@ mod rendering {
         let dir = tempfile::tempdir().unwrap();
         let mut db = Database::open(dir.path().join("m.db"), None).unwrap();
         seed(&mut db, now_millis()).unwrap();
+        prepare(&mut db);
         let sink = RecordingSink::default();
         let (handle, app) = cx
             .update(|cx| {
@@ -53,7 +67,7 @@ mod rendering {
                     WindowOptions {
                         window_bounds: Some(WindowBounds::Windowed(gpui_kit::Bounds {
                             origin: Default::default(),
-                            size: size(px(1120.), px(760.)),
+                            size: size(px(width), px(760.)),
                         })),
                         focus: false,
                         show: false,
@@ -174,6 +188,29 @@ mod rendering {
             app.open_conversation(ConversationId::Group(DEMO_GROUP), window, cx);
             app.show_details(ConversationId::Group(DEMO_GROUP), window, cx);
         });
+        // a long message in a narrow window must wrap inside the timeline
+        let narrow = capture_sized(
+            "narrow-long-message",
+            ThemeMode::Dark,
+            640.,
+            |db| {
+                let body = "lorem ipsum dolor sit amet consectetur ".repeat(30);
+                db.apply(Mutation::InsertMessage(NewMessage::text(
+                    ConversationId::Direct(DEMO_ALICE),
+                    signal_backend::demo::DEMO_ME,
+                    now_millis(),
+                    true,
+                    body,
+                )))
+                .unwrap();
+            },
+            |app, window, cx| {
+                app.set_appearance(signal_app::theme::Appearance::Dark, window, cx);
+                registered(app, window, cx);
+                app.open_conversation(ConversationId::Direct(DEMO_ALICE), window, cx);
+            },
+        );
+        assert!(narrow.width() < light.width());
         assert_eq!(light.dimensions(), dark.dimensions());
         assert_ne!(
             light.as_raw(),
