@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/aamirsahmad/halyard/security/advisories/new
+    about: Report security problems privately, not as an issue.
+  - name: Problems with Signal itself
+    url: https://support.signal.org/
+    about: Halyard is unofficial. Account, server or phone app problems go to Signal support.

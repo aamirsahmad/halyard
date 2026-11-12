@@ -1,0 +1,23 @@
+name: Feature request
+description: Suggest something Halyard should do
+labels: [enhancement]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What would you like
+      description: Describe the feature and the problem it solves.
+    validations:
+      required: true
+  - type: textarea
+    id: signal-desktop
+    attributes:
+      label: How Signal Desktop does it
+      description: If Signal Desktop has this, describe or screenshot its behaviour. Halyard aims to match it.
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope
+      options:
+        - label: This isn't about voice or video calls (out of scope for now)
+          required: true

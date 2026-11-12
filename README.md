@@ -1,5 +1,8 @@
 # Halyard
 
+[![CI](https://github.com/aamirsahmad/halyard/actions/workflows/ci.yml/badge.svg)](https://github.com/aamirsahmad/halyard/actions/workflows/ci.yml)
+[![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
+
 An unofficial, native desktop client for the Signal messenger on **macOS and Linux**, written in Rust.
 The UI is built with [GPUI](https://www.gpui.rs/) via [GPUI Kit](https://gpui-kit.com/) and
 modelled on [Signal Desktop](https://github.com/signalapp/Signal-Desktop). The Signal protocol
@@ -73,6 +76,26 @@ protects backups and copies of the data folder. It does not protect against malw
 running as your user. When you send an attachment, the original file is referenced in
 place and is not copied.
 
+## Install
+
+Download the package for your system from the releases page.
+
+**macOS 11+** (Apple silicon and Intel): open `Halyard-<version>-macos-universal.dmg` and drag
+Halyard to Applications. Builds that aren't notarized by Apple are blocked on first launch;
+to allow it, open System Settings → Privacy & Security and click **Open Anyway**, or run
+`xattr -dr com.apple.quarantine /Applications/Halyard.app`.
+
+**Linux** (x86_64 or arm64; glibc 2.35+, e.g. Ubuntu 22.04, Debian 12, Fedora 36 or newer):
+
+* AppImage: `chmod +x Halyard-<version>-x86_64.AppImage && ./Halyard-<version>-x86_64.AppImage`
+  (without FUSE, add `--appimage-extract-and-run`)
+* Debian/Ubuntu: `sudo apt install ./halyard_<version>_amd64.deb`
+* Anything else: extract `halyard-<version>-linux-x86_64.tar.gz` and run `./halyard`, or
+  `./install.sh` to add it to your applications menu.
+
+Halyard needs a Vulkan driver (`mesa-vulkan-drivers` on Debian/Ubuntu), which most desktops
+already have. Then link it to your phone (see [Linking](#linking)).
+
 ## Building
 
 Requires Rust **1.99.1** (pinned in `rust-toolchain.toml`; rustup installs it) and `protoc`.
@@ -101,12 +124,20 @@ Options: `--data-dir <PATH>`, `--staging` (Signal's staging servers), `--help`. 
 2. On your phone, open Signal → Settings → Linked devices → Link new device.
 3. Scan the QR code. Contacts and groups sync automatically.
 
-### Packaging
+### Release packages
 
-* macOS: `script/bundle-macos.sh` builds `target/release/bundle/Halyard.app`. Sign and
-  notarize it with your Developer ID before you distribute it.
-* Linux: install `target/release/halyard` into your `PATH` and
-  `packaging/linux/halyard.desktop` into `~/.local/share/applications/`.
+```sh
+script/package-macos.sh   # dist/Halyard-<version>-macos-universal.{dmg,zip}
+script/package-linux.sh   # dist/Halyard-<version>-<arch>.AppImage, .deb and .tar.gz
+                          # (in an Ubuntu 22.04 container, for the Docker host's architecture)
+```
+
+`script/package-macos.sh` signs with your Developer ID and notarizes when
+`MACOS_SIGN_IDENTITY` (and `APPLE_ID`, `APPLE_TEAM_ID`, `APPLE_APP_PASSWORD`) are set;
+otherwise the app is ad-hoc signed. Pushing a `v<version>` tag runs
+`.github/workflows/release.yml`, which builds all packages (macOS universal, Linux x86_64 and
+arm64) and attaches them to a draft GitHub release. The app icon is
+`packaging/icons/halyard.svg`; `script/render-icons.sh` regenerates the PNGs and `.icns`.
 
 ## Testing
 
@@ -133,6 +164,19 @@ script/test-linux.sh                                           # full suite in a
 CI (`.github/workflows/ci.yml`) runs fmt, clippy (`-D warnings`), tests, rendering tests
 and a release build on Ubuntu and macOS.
 
+## Contributing
+
+Contributions are welcome: see [CONTRIBUTING.md](CONTRIBUTING.md) to get set up, and the
+[Code of Conduct](CODE_OF_CONDUCT.md). Report security problems privately as described in
+[SECURITY.md](SECURITY.md). Changes are listed in [CHANGELOG.md](CHANGELOG.md).
+
+**Status:** early. Everything is covered by automated tests and the demo mode, but some newer
+network features (leaving groups, posting stories, syncing message-request and block choices)
+haven't been tested much against real accounts yet; see [PARITY.md](PARITY.md#verification).
+Bug reports are very welcome.
+
 ## License
 
 AGPL-3.0-only, the same as libsignal, presage and Signal Desktop. See [LICENSE](LICENSE).
+Icons in `crates/signal-app/assets/signal/` come from Signal Desktop (AGPL-3.0). The Halyard
+icon is original artwork under the same licence.

@@ -1,0 +1,67 @@
+name: Bug report
+description: Something doesn't work as it should
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! For security problems, use [Report a vulnerability](https://github.com/aamirsahmad/halyard/security/advisories/new) instead.
+        Please don't include message contents, phone numbers or other private data.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open a group chat
+        2. …
+  - type: input
+    id: version
+    attributes:
+      label: Halyard version
+      description: Run `halyard --version`, or give the release or commit.
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - macOS (Apple silicon)
+        - macOS (Intel)
+        - Linux (x86_64)
+        - Linux (arm64)
+    validations:
+      required: true
+  - type: input
+    id: os-details
+    attributes:
+      label: OS version and desktop
+      placeholder: macOS 15.1 / Ubuntu 24.04 GNOME Wayland
+  - type: dropdown
+    id: install
+    attributes:
+      label: How you installed it
+      options:
+        - .dmg / .zip
+        - AppImage
+        - .deb
+        - tarball
+        - built from source
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Run with `SIGNAL_LOG=debug halyard` and paste the relevant part. Remove anything private.
+      render: text
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots
+      description: For UI problems. A Signal Desktop screenshot for comparison helps too.

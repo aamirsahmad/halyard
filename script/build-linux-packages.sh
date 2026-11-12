@@ -69,7 +69,7 @@ Depends: libc6 (>= 2.35), libasound2 | libasound2t64, libxkbcommon0, libxkbcommo
 Recommends: mesa-vulkan-drivers
 Section: net
 Priority: optional
-Homepage: https://github.com/aamir/signal-gpui
+Homepage: https://github.com/aamirsahmad/halyard
 Description: Unofficial desktop client for the Signal messenger
  Halyard is a native Signal client for Linux built with GPUI. It links to
  your phone as a secondary device. Not affiliated with Signal.
