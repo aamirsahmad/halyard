@@ -64,7 +64,7 @@ jobs:
         run: script/package-macos.sh
       - name: Smoke test
         run: dist/Halyard.app/Contents/MacOS/halyard --version
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: macos
           path: |
@@ -90,7 +90,7 @@ jobs:
           APPIMAGE_EXTRACT_AND_RUN=1 dist/*.AppImage --version
           sudo apt-get install -y ./dist/*.deb
           halyard --version
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: linux-${{ matrix.runner }}
           path: |
