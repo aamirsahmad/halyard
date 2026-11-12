@@ -9,6 +9,7 @@ Legend: ✅ done · 🚧 partial · ⬜ not yet · ✖ not supported (reason giv
 
 | Feature | Status |
 |---|---|
+| Navigation rail (Chats with unread count, Stories with new-story dot, Settings), 80px like `$NavTabs__width` | ✅ (no Calls tab: calls are out of scope) |
 | Conversation list with avatar, title, preview, time, unread badge | ✅ |
 | Pinned chats on top | ✅ |
 | Search chats, contacts and message text | ✅ |
@@ -27,7 +28,8 @@ Legend: ✅ done · 🚧 partial · ⬜ not yet · ✖ not supported (reason giv
 
 | Feature | Status |
 |---|---|
-| Bubbles with sender grouping, date separators, delivery status | ✅ |
+| Bubbles with sender grouping, date separators, delivery status | ✅ radius 18 / grouped 4, padding 12×8, as in Signal Desktop's stylesheets |
+| Bubble width follows Signal Desktop's breakpoints (half the window when wide, 370px medium, 306px narrow) | ✅ |
 | Group sender names and avatars | ✅ |
 | Header: chat details / group members, search, menu | ✅ |
 | Hover actions: reaction bar (6 quick reactions + all emoji), reply, more | ✅ |

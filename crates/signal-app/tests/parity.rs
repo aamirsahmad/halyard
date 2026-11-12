@@ -975,3 +975,24 @@ fn empty_text_story_is_not_posted(cx: &mut TestAppContext) {
     with_window(cx, &h, |w, cx| w.click(eid("story-post"), cx));
     assert!(h.sink.take().is_empty());
 }
+
+#[gpui_kit::test]
+fn nav_tabs_switch_between_chats_stories_and_settings(cx: &mut TestAppContext) {
+    use signal_app::app::ListMode;
+    let h = setup(cx);
+    let mode = |cx: &mut TestAppContext| cx.update(|cx| h.app.read(cx).list_mode());
+    with_window(cx, &h, |w, cx| {
+        assert!(
+            w.try_find("nav-chats-unread").is_some(),
+            "unread count on Chats"
+        );
+        w.click("stories", cx);
+    });
+    assert_eq!(mode(cx), ListMode::Stories);
+    with_window(cx, &h, |w, cx| w.click("nav-chats", cx));
+    assert_eq!(mode(cx), ListMode::Chats);
+    with_window(cx, &h, |w, cx| w.click("nav-settings", cx));
+    with_window(cx, &h, |w, _| {
+        assert!(w.try_find("preferences").is_some(), "settings open")
+    });
+}

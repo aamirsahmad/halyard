@@ -82,6 +82,7 @@ impl Render for SignalApp {
                         this.set_list_mode(ListMode::Chats, window, cx);
                     }
                 }))
+                .children((!self.sidebar_compact(window, cx)).then(|| self.render_nav_tabs(&p, cx)))
                 .child(self.render_sidebar(&p, window, cx))
                 .child(self.render_conversation_pane(&p, window, cx)),
             _ => root.child(self.render_link_screen(&p, window, cx)),

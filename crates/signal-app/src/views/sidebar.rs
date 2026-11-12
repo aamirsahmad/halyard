@@ -22,6 +22,8 @@ use crate::views::rem_px;
 pub const SIDEBAR_WIDTH: f32 = 320.;
 /// Width of the avatars-only chat list shown in narrow windows.
 pub const COMPACT_SIDEBAR_WIDTH: f32 = 84.;
+/// Signal Desktop's navigation rail (`$NavTabs__width`).
+pub const NAV_TABS_WIDTH: f32 = 80.;
 /// Below this window width (in rems × 16) the chat list collapses to avatars,
 /// like Signal Desktop's narrow left pane.
 pub const COMPACT_BREAKPOINT: f32 = 760.;
@@ -107,35 +109,7 @@ impl SignalApp {
                     .child(title),
             )
             .when(self.list_mode == ListMode::Chats, |d| {
-                let unviewed = self.unviewed_story_count();
                 d.child(
-                    div()
-                        .relative()
-                        .child(
-                            Button::new("stories")
-                                .ghost()
-                                .small()
-                                .icon(Icon::new(Icons::CircleDashed))
-                                .tooltip("Stories")
-                                .on_click(cx.listener(|this, _, window, cx| {
-                                    this.set_list_mode(ListMode::Stories, window, cx)
-                                })),
-                        )
-                        .when(unviewed > 0, |d| {
-                            d.child(
-                                div()
-                                    .id("stories-badge")
-                                    .absolute()
-                                    .top(rem_px(2.))
-                                    .right(rem_px(2.))
-                                    .size(rem_px(8.))
-                                    .rounded_full()
-                                    .bg(p.badge)
-                                    .test_support(),
-                            )
-                        }),
-                )
-                .child(
                     Button::new("new-chat")
                         .ghost()
                         .small()
@@ -180,6 +154,106 @@ impl SignalApp {
             .child(search)
             .children(self.render_connection_banner(p))
             .child(list)
+            .test_support()
+            .into_any_element()
+    }
+
+    /// Signal Desktop's navigation rail: Chats (with the unread count) and
+    /// Stories (with a dot for new stories) on top, Settings at the bottom.
+    pub(super) fn render_nav_tabs(&self, p: &Palette, cx: &mut Context<Self>) -> AnyElement {
+        let on_stories = self.list_mode == ListMode::Stories;
+        let unread = self.state.total_unread();
+        let unviewed = self.unviewed_story_count();
+        let tab = |id: &'static str, icon: Icons, label: &'static str, active: bool| {
+            div()
+                .id(id)
+                .relative()
+                .flex()
+                .items_center()
+                .justify_center()
+                .size(rem_px(52.))
+                .rounded(rem_px(8.))
+                .cursor_pointer()
+                .when(active, |d| d.bg(p.selected))
+                .when(!active, |d| d.hover(|s| s.bg(p.hover)))
+                .tooltip(move |window, cx| {
+                    gpui_kit::component::tooltip::Tooltip::new(label).build(window, cx)
+                })
+                .child(Icon::new(icon).size(rem_px(22.)))
+        };
+        div()
+            .id("nav-tabs")
+            .flex()
+            .flex_col()
+            .items_center()
+            .flex_none()
+            .w(rem_px(NAV_TABS_WIDTH))
+            .h_full()
+            .pt_3()
+            .pb_2()
+            .gap_2()
+            .bg(p.background)
+            .border_r_1()
+            .border_color(p.border)
+            .child(
+                tab("nav-chats", Icons::MessageCircle, "Chats", !on_stories)
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.set_list_mode(ListMode::Chats, window, cx)
+                    }))
+                    .when(unread > 0, |d| {
+                        d.child(
+                            div()
+                                .id("nav-chats-unread")
+                                .absolute()
+                                .top(rem_px(4.))
+                                .right(rem_px(2.))
+                                .min_w(rem_px(16.))
+                                .h(rem_px(16.))
+                                .px(rem_px(3.))
+                                .rounded_full()
+                                .bg(p.danger)
+                                .text_color(gpui_kit::white())
+                                .text_size(rem_px(10.))
+                                .font_weight(FontWeight::BOLD)
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .child(if unread > 99 {
+                                    "99+".to_string()
+                                } else {
+                                    unread.to_string()
+                                })
+                                .test_support(),
+                        )
+                    })
+                    .test_support(),
+            )
+            .child(
+                tab("stories", Icons::CircleDashed, "Stories", on_stories)
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.set_list_mode(ListMode::Stories, window, cx)
+                    }))
+                    .when(unviewed > 0, |d| {
+                        d.child(
+                            div()
+                                .id("stories-badge")
+                                .absolute()
+                                .top(rem_px(8.))
+                                .right(rem_px(8.))
+                                .size(rem_px(8.))
+                                .rounded_full()
+                                .bg(p.badge)
+                                .test_support(),
+                        )
+                    })
+                    .test_support(),
+            )
+            .child(div().flex_1())
+            .child(
+                tab("nav-settings", Icons::Settings, "Settings", false)
+                    .on_click(cx.listener(|this, _, window, cx| this.open_preferences(window, cx)))
+                    .test_support(),
+            )
             .test_support()
             .into_any_element()
     }

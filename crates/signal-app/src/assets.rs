@@ -28,6 +28,7 @@ gpui_kit::assets::icon_assets!(
         PinOff,
         Reply,
         SendHorizontal,
+        Settings,
         Smartphone,
         SquarePen,
         Trash,

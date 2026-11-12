@@ -29,7 +29,28 @@ use crate::views::avatar::Avatar;
 
 const BUBBLE_RADIUS: f32 = 18.;
 const GROUPED_RADIUS: f32 = 4.;
-const MAX_BUBBLE_WIDTH: f32 = 480.;
+/// Signal Desktop's bubble width rule (stylesheets/_modules.scss and
+/// `getWidthBreakpoint`): wide timelines (> 606px) allow half the window,
+/// medium ones (> 514px) 370px, narrow ones 306px (less if it doesn't fit).
+/// `window_width` is in rem×16 units, like all our sizes.
+pub fn max_bubble_width(window_width: f32) -> f32 {
+    use crate::views::sidebar::{
+        COMPACT_BREAKPOINT, COMPACT_SIDEBAR_WIDTH, NAV_TABS_WIDTH, SIDEBAR_WIDTH,
+    };
+    let sidebar = if window_width < COMPACT_BREAKPOINT {
+        COMPACT_SIDEBAR_WIDTH
+    } else {
+        NAV_TABS_WIDTH + SIDEBAR_WIDTH
+    };
+    let timeline = window_width - sidebar - 32.; // row padding
+    if timeline > 606. {
+        window_width * 0.5
+    } else if timeline > 514. {
+        370.
+    } else {
+        306f32.min(timeline - 16. - 22.).max(120.)
+    }
+}
 const MAX_IMAGE: f32 = 300.;
 
 pub fn message_element_id(m: &Message) -> ElementId {
@@ -41,9 +62,11 @@ pub fn render_timeline_item(
     index: usize,
     p: &Palette,
     app: WeakEntity<SignalApp>,
-    _: &mut Window,
+    window: &mut Window,
     _: &mut App,
 ) -> AnyElement {
+    let width = f32::from(window.viewport_size().width) / f32::from(window.rem_size()) * 16.;
+    let max_bubble = max_bubble_width(width);
     match data.items.get(index) {
         Some(TimelineItem::DateSeparator(label)) => div()
             .flex()
@@ -82,7 +105,7 @@ pub fn render_timeline_item(
             .test_support()
             .into_any_element(),
         Some(TimelineItem::Message(tm)) => match data.messages.get(tm.index) {
-            Some(m) => render_message(data, tm, m, p, app),
+            Some(m) => render_message(data, tm, m, p, app, max_bubble),
             None => div().into_any_element(),
         },
         None => div().into_any_element(),
@@ -95,6 +118,7 @@ fn render_message(
     m: &Message,
     p: &Palette,
     app: WeakEntity<SignalApp>,
+    max_bubble: f32,
 ) -> AnyElement {
     if let MessageKind::GroupMember {
         change,
@@ -183,7 +207,7 @@ fn render_message(
         .id(message_element_id(m))
         .flex()
         .flex_col()
-        .max_w(rem_px(MAX_BUBBLE_WIDTH))
+        .max_w(rem_px(max_bubble))
         .min_w(rem_px(60.))
         .flex_shrink_1()
         .px_3()
@@ -795,4 +819,25 @@ fn render_attachment(
         )
         .test_support()
         .into_any_element()
+}
+
+#[cfg(test)]
+mod width_tests {
+    use super::max_bubble_width;
+
+    #[test]
+    fn follows_signal_desktop_breakpoints() {
+        // 1120 wide: rail + list take 400, timeline 688 > 606 → half the window
+        assert_eq!(max_bubble_width(1120.), 560.);
+        // 1000: timeline 568 → medium
+        assert_eq!(max_bubble_width(1000.), 370.);
+        // 840: timeline 408 → narrow
+        assert_eq!(max_bubble_width(840.), 306.);
+        // 640 (compact list): timeline 524 → medium
+        assert_eq!(max_bubble_width(640.), 370.);
+        // 520: timeline 404 → narrow
+        assert_eq!(max_bubble_width(520.), 306.);
+        // tiny: shrinks to fit, with a floor
+        assert_eq!(max_bubble_width(300.), 146.);
+    }
 }
