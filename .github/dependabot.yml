@@ -5,11 +5,30 @@ updates:
     schedule:
       interval: weekly
     groups:
+      # one pull request for all compatible updates
       cargo:
         patterns: ["*"]
         update-types: [minor, patch]
-    open-pull-requests-limit: 5
+      # one pull request for all major updates
+      cargo-major:
+        patterns: ["*"]
+        update-types: [major]
+    ignore:
+      # These crates encrypt the attachment store. Upgrade them together and by
+      # hand, with a test that old attachments still decrypt.
+      - dependency-name: aes-gcm
+        update-types: ["version-update:semver-major"]
+      - dependency-name: hkdf
+        update-types: ["version-update:semver-major"]
+      - dependency-name: sha2
+        update-types: ["version-update:semver-major"]
+      - dependency-name: rand
+        update-types: ["version-update:semver-major"]
+    open-pull-requests-limit: 3
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: monthly
+    groups:
+      actions:
+        patterns: ["*"]
