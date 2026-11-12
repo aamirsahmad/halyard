@@ -37,8 +37,20 @@ experimental.
 | `crates/signal-backend` | The presage/libsignal worker thread, protocol interpretation (`interpret.rs`, pure and unit-tested), the demo backend. |
 | `crates/signal-app` | The GPUI Kit UI and the `halyard` binary. |
 
-The UI and backend only talk through `BackendCommand` and `BackendEvent`
-(`signal-core/src/protocol.rs`). See the Architecture section of the README for more.
+How the pieces fit together:
+
+* presage's `Manager` is `!Send`, so the backend runs on its own thread with a single-threaded
+  tokio runtime and a `LocalSet`. The UI and backend only talk through `BackendCommand` and
+  `BackendEvent` (`signal-core/src/protocol.rs`).
+* The backend turns decrypted `Content` into `Mutation`s (`signal-backend/src/interpret.rs`, a
+  pure function). Mutations are applied atomically to the database (`signal-core/src/db.rs`),
+  and the changed rows go to the UI as events.
+* The UI keeps a `ChatState` (`signal-core/src/state.rs`). Applying an event returns effects
+  (mark read, notify, re-render), so UI logic can be tested without a window.
+
+Data lives in `protocol.db3` (presage's keys, sessions, contacts and groups; SQLCipher),
+`messages.db3` (conversations and messages; SQLCipher), `attachments/*.sga` (AES-256-GCM with
+a key derived from the database key) and `config.json` (the random database key, mode `0600`).
 
 ## Making changes
 
@@ -61,6 +73,13 @@ cargo fmt --all
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --locked
 script/test-linux.sh   # optional on macOS: the same suite in a Linux container (Docker)
+```
+
+Other test commands:
+
+```sh
+SCREENSHOT_DIR=/tmp/shots cargo test -p signal-app --test rendering  # save screenshots of every screen
+cargo test -p signal-backend --test worker -- --ignored              # live: fetch a real linking URL
 ```
 
 CI runs the same checks on macOS and Linux.
