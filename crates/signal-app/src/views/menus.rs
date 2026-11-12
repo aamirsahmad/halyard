@@ -169,6 +169,18 @@ pub fn conversation_menu(
         );
     }
 
+    if place == MenuPlace::Header
+        && let signal_core::ConversationId::Group(key) = id
+        && !conv.left
+    {
+        menu = menu.separator().item(
+            item(&app, "Leave group…", move |this, window, cx| {
+                this.confirm_leave_group(key, window, cx)
+            })
+            .icon(Icon::new(Icons::LogOut)),
+        );
+    }
+
     menu = menu.separator().item(
         item(&app, "Delete chat…", move |this, window, cx| {
             this.confirm_delete_conversation(id, window, cx)

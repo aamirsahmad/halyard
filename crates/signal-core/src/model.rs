@@ -142,6 +142,44 @@ pub enum MessageKind {
     Normal,
     /// "X set the disappearing message timer to …" notice.
     TimerChanged { secs: Option<u32> },
+    /// Group membership notice; the message author is who made the change.
+    GroupMember {
+        change: MemberChange,
+        member: Uuid,
+        /// The member is this account ("You left", "removed you").
+        member_is_me: bool,
+    },
+}
+
+/// A change to a group's membership.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MemberChange {
+    Added,
+    Left,
+    Removed,
+}
+
+/// Text of a membership notice. Names are `None` for "you".
+pub fn member_notice(actor: Option<&str>, member: Option<&str>, change: MemberChange) -> String {
+    match change {
+        MemberChange::Left => match member {
+            Some(m) => format!("{m} left the group."),
+            None => "You left the group.".into(),
+        },
+        MemberChange::Added => match (actor, member) {
+            (None, Some(m)) => format!("You added {m}."),
+            (Some(a), None) => format!("{a} added you."),
+            (Some(a), Some(m)) => format!("{a} added {m}."),
+            (None, None) => "You joined the group.".into(),
+        },
+        MemberChange::Removed => match (actor, member) {
+            (None, Some(m)) => format!("You removed {m}."),
+            (Some(a), None) => format!("{a} removed you."),
+            (Some(a), Some(m)) => format!("{a} removed {m}."),
+            (None, None) => "You left the group.".into(),
+        },
+    }
 }
 
 /// Stories disappear 24 hours after they were posted.
@@ -226,6 +264,9 @@ impl Message {
         }
         if let MessageKind::TimerChanged { secs } = &self.kind {
             return timer_notice(None, *secs);
+        }
+        if let MessageKind::GroupMember { change, .. } = &self.kind {
+            return member_notice(None, None, *change);
         }
         let body = self.body.replace(MENTION_PLACEHOLDER, "@");
         let body = body.trim();
@@ -315,6 +356,8 @@ pub struct Conversation {
     pub avatar: Option<String>,
     /// Contact's "about" text or group description.
     pub about: Option<String>,
+    /// This account is no longer a member of the group.
+    pub left: bool,
 }
 
 impl Conversation {
@@ -338,6 +381,7 @@ impl Conversation {
             accepted: true,
             avatar: None,
             about: None,
+            left: false,
         }
     }
 

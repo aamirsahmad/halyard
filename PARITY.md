@@ -56,7 +56,8 @@ Legend: ✅ done · 🚧 partial · ⬜ not yet · ✖ not supported (reason giv
 | Message requests for unknown senders (accept / block / delete) | 🚧 detected from the contact sync; presage doesn't expose Signal's accepted state |
 | Block / unblock contacts | ✅ |
 | Safety number view | ✅ |
-| Leave group | ✖ needs group-change requests; libsignal-service only fetches groups (its group HTTP calls are crate-private), so this needs a fork |
+| Leave group (header menu or group details, with confirmation); "no longer a member" banner | ✅ signed group change sent through libsignal-service's public push API; not yet exercised against a live group |
+| Group membership notices ("Bob left the group.", "Alice added Carol.", "Alice removed you.") | ✅ |
 | Voice notes and audio attachments: in-app playback with progress | ✅ |
 | Recording voice notes (mic button when the composer is empty) | 🚧 sent as 16 kHz WAV with the voice-note flag; Signal's apps record AAC |
 

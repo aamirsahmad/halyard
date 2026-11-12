@@ -92,6 +92,10 @@ pub enum BackendCommand {
     SetReadReceipts(bool),
     /// Ask the primary device for a fresh contact list.
     SyncContacts,
+    /// Leave a group (removes this account from it on the server).
+    LeaveGroup {
+        group: GroupKey,
+    },
     /// Unlink this device and wipe local data.
     Unlink,
     Shutdown,
@@ -352,6 +356,19 @@ pub enum Mutation {
         conversation: ConversationId,
         blocked: bool,
     },
+    /// A member joined, left or was removed; adds a notice to the timeline
+    /// and marks the group as left when the member is this account.
+    GroupMember {
+        conversation: ConversationId,
+        actor: Uuid,
+        member: Uuid,
+        change: crate::model::MemberChange,
+        /// `actor` is this account.
+        outgoing: bool,
+        /// `member` is this account.
+        member_is_me: bool,
+        at: Millis,
+    },
     Accept {
         conversation: ConversationId,
     },
@@ -373,6 +390,7 @@ impl Mutation {
             | Mutation::SetMuted { conversation, .. }
             | Mutation::SetMarkedUnread { conversation, .. }
             | Mutation::SetBlocked { conversation, .. }
+            | Mutation::GroupMember { conversation, .. }
             | Mutation::Accept { conversation }
             | Mutation::SetAvatar { conversation, .. }
             | Mutation::SetAbout { conversation, .. } => Some(*conversation),

@@ -146,6 +146,8 @@ enum Internal {
         name: Option<String>,
     },
     Error(String),
+    /// A mutation produced by a background task.
+    Apply(Box<Mutation>),
     StoryAttachmentDownloaded {
         story_id: i64,
         path: Option<PathBuf>,
@@ -509,6 +511,10 @@ impl Worker {
                 }
             }
             Internal::Error(e) => self.emit(BackendEvent::Error(e)),
+            Internal::Apply(m) => {
+                let changes = self.apply(*m);
+                self.emit_changes(changes);
+            }
             Internal::Avatar {
                 conversation,
                 bytes,
@@ -1047,9 +1053,59 @@ impl Worker {
                     });
                 }
             }
+            BackendCommand::LeaveGroup { group } => self.leave_group(group),
             BackendCommand::Unlink => self.unlink().await,
             BackendCommand::Shutdown => {}
         }
+    }
+
+    /// Removes us from the group on the server, records it locally, then
+    /// tells the remaining members with the signed change.
+    fn leave_group(&mut self, group: GroupKey) {
+        let (Some(mut manager), Some(me)) = (self.manager.clone(), self.me) else {
+            self.error("Couldn't leave the group", "not linked");
+            return;
+        };
+        let ts = self.next_ts();
+        let tx = self.internal_tx.clone();
+        spawn_local(async move {
+            let account =
+                match crate::groups::Account::from_registration(manager.registration_data()) {
+                    Ok(a) => a,
+                    Err(e) => {
+                        let _ = tx.send(Internal::Error(format!("Couldn't leave the group: {e}")));
+                        return;
+                    }
+                };
+            let signed = match crate::groups::leave(&account, group).await {
+                Ok(s) => s,
+                Err(e) => {
+                    let _ = tx.send(Internal::Error(format!("Couldn't leave the group: {e}")));
+                    return;
+                }
+            };
+            let _ = tx.send(Internal::Apply(Box::new(Mutation::GroupMember {
+                conversation: ConversationId::Group(group),
+                actor: me,
+                member: me,
+                change: signal_core::MemberChange::Left,
+                outgoing: true,
+                member_is_me: true,
+                at: ts,
+            })));
+            let dm = DataMessage {
+                timestamp: Some(ts as u64),
+                group_v2: Some(GroupContextV2 {
+                    master_key: Some(group.0.to_vec()),
+                    revision: Some(signed.revision),
+                    group_change: Some(signed.bytes),
+                }),
+                ..Default::default()
+            };
+            if let Err(e) = manager.send_message_to_group(&group.0, dm, ts as u64).await {
+                tracing::warn!(%e, "left the group but couldn't notify members");
+            }
+        });
     }
 
     fn next_ts(&mut self) -> Millis {

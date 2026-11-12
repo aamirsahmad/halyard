@@ -834,3 +834,60 @@ fn narrow_window_collapses_chat_list_to_avatars(cx: &mut TestAppContext) {
     });
     assert!(!compact(cx));
 }
+
+#[gpui_kit::test]
+fn leave_group_from_details_after_confirmation(cx: &mut TestAppContext) {
+    let h = setup(cx);
+    let group = ConversationId::Group(signal_backend::demo::DEMO_GROUP);
+    with_app(cx, &h, |a, w, cx| a.open_conversation(group, w, cx));
+    with_app(cx, &h, |a, w, cx| a.show_details(group, w, cx));
+    h.sink.take();
+    with_window(cx, &h, |w, cx| w.click(eid("details-leave-group"), cx));
+    assert!(h.sink.take().is_empty(), "nothing sent before confirming");
+    with_window(cx, &h, |w, cx| w.click(eid("ok"), cx));
+    assert!(h.sink.take().contains(&BackendCommand::LeaveGroup {
+        group: signal_backend::demo::DEMO_GROUP
+    }));
+
+    // the backend confirms with a membership change
+    let mut left = conv(cx, &h, group).unwrap();
+    left.left = true;
+    emit(cx, &h, BackendEvent::ConversationUpdated(left));
+    with_window(cx, &h, |w, _| {
+        assert!(w.try_find(eid("left-group-banner")).is_some());
+        assert!(
+            w.try_find(eid("composer")).is_none(),
+            "no composer once left"
+        );
+    });
+    // and the leave option is gone
+    with_app(cx, &h, |a, w, cx| a.show_details(group, w, cx));
+    with_window(cx, &h, |w, _| {
+        assert!(w.try_find(eid("details-leave-group")).is_none())
+    });
+}
+
+#[test]
+fn member_notices_read_like_signal() {
+    use signal_core::{MemberChange, member_notice};
+    assert_eq!(
+        member_notice(None, None, MemberChange::Left),
+        "You left the group."
+    );
+    assert_eq!(
+        member_notice(Some("Bob"), Some("Bob"), MemberChange::Left),
+        "Bob left the group."
+    );
+    assert_eq!(
+        member_notice(Some("Alice"), Some("Carol"), MemberChange::Added),
+        "Alice added Carol."
+    );
+    assert_eq!(
+        member_notice(Some("Alice"), None, MemberChange::Removed),
+        "Alice removed you."
+    );
+    assert_eq!(
+        member_notice(None, Some("Dave"), MemberChange::Removed),
+        "You removed Dave."
+    );
+}

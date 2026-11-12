@@ -49,7 +49,9 @@ impl SignalApp {
             .on_drop(cx.listener(|this, paths: &ExternalPaths, _, cx| {
                 this.add_attachments(paths.paths().to_vec(), cx);
             }))
-            .child(if conv.blocked || !conv.accepted {
+            .child(if conv.left {
+                render_left_banner(p)
+            } else if conv.blocked || !conv.accepted {
                 self.render_request_banner(&conv, p, cx)
             } else {
                 self.render_composer(p, cx)
@@ -774,6 +776,23 @@ fn render_welcome(p: &Palette) -> AnyElement {
                 .child(Icon::new(Icons::Lock).xsmall())
                 .child("Messages are end-to-end encrypted"),
         )
+        .test_support()
+        .into_any_element()
+}
+
+/// Shown instead of the composer in groups this account has left.
+fn render_left_banner(p: &Palette) -> AnyElement {
+    div()
+        .id("left-group-banner")
+        .flex_none()
+        .px_6()
+        .py_4()
+        .border_t_1()
+        .border_color(p.border)
+        .text_center()
+        .text_size(rem_px(13.))
+        .text_color(p.text_secondary)
+        .child("You can't send messages to this group because you're no longer a member.")
         .test_support()
         .into_any_element()
 }

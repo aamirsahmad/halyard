@@ -1014,3 +1014,69 @@ fn view_once_opened_deletes_media() {
             .is_empty()
     );
 }
+
+#[test]
+fn group_membership_notices_and_leaving() {
+    use crate::model::MemberChange;
+    let mut db = db();
+    let key = GroupKey([7; 32]);
+    let group = ConversationId::Group(key);
+    for (uuid, name) in [(ALICE, "Alice"), (BOB, "Bob")] {
+        db.apply(Mutation::UpsertContact(Contact {
+            uuid,
+            name: Some(name.into()),
+            profile_name: None,
+            phone: None,
+        }))
+        .unwrap();
+    }
+    db.apply(Mutation::UpsertGroup {
+        key,
+        title: "Team".into(),
+        members: vec![ME, ALICE, BOB],
+    })
+    .unwrap();
+    let member = |actor, member, change, outgoing, member_is_me, at| Mutation::GroupMember {
+        conversation: group,
+        actor,
+        member,
+        change,
+        outgoing,
+        member_is_me,
+        at,
+    };
+
+    let ch = db
+        .apply(member(BOB, BOB, MemberChange::Left, false, false, 1_000))
+        .unwrap();
+    assert_eq!(ch.conversations[0].last_preview, "Bob left the group.");
+    assert_eq!(ch.conversations[0].members, vec![ME, ALICE], "Bob is gone");
+    assert!(!ch.conversations[0].left);
+    assert_eq!(ch.conversations[0].unread_count, 0, "notices aren't unread");
+
+    let ch = db
+        .apply(member(ALICE, ME, MemberChange::Removed, false, true, 2_000))
+        .unwrap();
+    assert_eq!(ch.conversations[0].last_preview, "Alice removed you.");
+    assert!(ch.conversations[0].left);
+
+    let ch = db
+        .apply(member(ALICE, ME, MemberChange::Added, false, true, 3_000))
+        .unwrap();
+    assert_eq!(ch.conversations[0].last_preview, "Alice added you.");
+    assert_eq!(ch.conversations[0].members, vec![ALICE, ME]);
+    assert!(!ch.conversations[0].left, "re-added");
+
+    let ch = db
+        .apply(member(ME, ME, MemberChange::Left, true, true, 4_000))
+        .unwrap();
+    assert_eq!(ch.conversations[0].last_preview, "You left the group.");
+    assert!(ch.conversations[0].left);
+    assert!(
+        !ch.conversations[0].last_preview_outgoing,
+        "no \"You:\" prefix on notices"
+    );
+    let notice = &ch.messages[0];
+    assert!(notice.is_notice());
+    assert!(db.conversation(&group).unwrap().unwrap().left, "persisted");
+}

@@ -88,6 +88,56 @@ fn quote_from_proto(q: &data_message::Quote) -> Option<Quote> {
     })
 }
 
+/// Membership notices for a signed, encrypted group change.
+pub fn group_change_mutations(key: GroupKey, change: &[u8], me: Uuid, at: Millis) -> Vec<Mutation> {
+    use presage::libsignal_service::groups_v2::{GroupChange, GroupOperations};
+    use presage::libsignal_service::zkgroup::groups::{GroupMasterKey, GroupSecretParams};
+    let params = GroupSecretParams::derive_from_master_key(GroupMasterKey::new(key.0));
+    let decoded = presage::libsignal_service::proto::GroupChange::decode(change)
+        .map_err(|e| e.to_string())
+        .and_then(|c| {
+            GroupOperations::new(params)
+                .decrypt_group_change(c)
+                .map_err(|e| e.to_string())
+        });
+    let changes = match decoded {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::warn!(%e, "undecodable group change");
+            return Vec::new();
+        }
+    };
+    let actor: Uuid = changes.editor.into();
+    changes
+        .changes
+        .into_iter()
+        .filter_map(|c| {
+            let (member, change): (Uuid, _) = match c {
+                GroupChange::NewMember(m) => (m.aci.into(), signal_core::MemberChange::Added),
+                GroupChange::DeleteMember(aci) => {
+                    let member: Uuid = aci.into();
+                    let change = if member == actor {
+                        signal_core::MemberChange::Left
+                    } else {
+                        signal_core::MemberChange::Removed
+                    };
+                    (member, change)
+                }
+                _ => return None,
+            };
+            Some(Mutation::GroupMember {
+                conversation: ConversationId::Group(key),
+                actor,
+                member,
+                change,
+                outgoing: actor == me,
+                member_is_me: member == me,
+                at,
+            })
+        })
+        .collect()
+}
+
 /// Converts a data message into mutations.
 fn data_message(
     dm: &DataMessage,
@@ -102,6 +152,18 @@ fn data_message(
         out.push(Output::GroupSeen(key));
     }
     let sent_at = dm.timestamp.map(|t| t as Millis).unwrap_or(fallback_ts);
+
+    // signed group changes ride along on group messages: show who joined/left
+    if let ConversationId::Group(key) = conversation
+        && let Some(change) = dm.group_v2.as_ref().and_then(|g| g.group_change.as_deref())
+        && !change.is_empty()
+    {
+        out.extend(
+            group_change_mutations(key, change, ctx.me, sent_at)
+                .into_iter()
+                .map(Output::Mutation),
+        );
+    }
 
     // replies and reactions to a story arrive as data messages with a story context
     if let Some(sc) = &dm.story_context
@@ -1024,5 +1086,97 @@ mod tests {
         assert_eq!(parse_aci(None, Some(ALICE.as_bytes())), Some(ALICE));
         assert_eq!(parse_aci(Some("garbage"), Some(&[1, 2])), None);
         assert_eq!(parse_aci(None, None), None);
+    }
+
+    /// An encrypted group change made by `editor` deleting `deleted`.
+    fn delete_member_change(editor: Uuid, deleted: Uuid) -> Vec<u8> {
+        use presage::libsignal_service::proto::{GroupChange, group_change};
+        use presage::libsignal_service::zkgroup::{
+            self,
+            groups::{GroupMasterKey, GroupSecretParams},
+        };
+        let params = GroupSecretParams::derive_from_master_key(GroupMasterKey::new(GROUP));
+        let enc = |u: Uuid| zkgroup::serialize(&params.encrypt_service_id(sid(u)));
+        GroupChange {
+            actions: group_change::Actions {
+                source_user_id: enc(editor),
+                group_id: params.get_group_identifier().to_vec(),
+                version: 4,
+                delete_members: vec![group_change::actions::DeleteMemberAction {
+                    deleted_user_id: enc(deleted),
+                }],
+                ..Default::default()
+            }
+            .encode_to_vec(),
+            ..Default::default()
+        }
+        .encode_to_vec()
+    }
+
+    fn group_update(change: Vec<u8>) -> DataMessage {
+        DataMessage {
+            timestamp: Some(500),
+            group_v2: Some(GroupContextV2 {
+                master_key: Some(GROUP.to_vec()),
+                revision: Some(4),
+                group_change: Some(change),
+            }),
+            ..Default::default()
+        }
+    }
+
+    fn member_mutations(out: Vec<Output>) -> Vec<Mutation> {
+        out.into_iter()
+            .filter_map(|o| match o {
+                Output::Mutation(m @ Mutation::GroupMember { .. }) => Some(m),
+                Output::Mutation(other) => panic!("unexpected {other:?}"),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn group_change_member_left() {
+        let out = run(&content(BOB, group_update(delete_member_change(BOB, BOB))));
+        assert_eq!(
+            member_mutations(out),
+            vec![Mutation::GroupMember {
+                conversation: ConversationId::Group(GroupKey(GROUP)),
+                actor: BOB,
+                member: BOB,
+                change: signal_core::MemberChange::Left,
+                outgoing: false,
+                member_is_me: false,
+                at: 500,
+            }]
+        );
+    }
+
+    #[test]
+    fn group_change_removed_me() {
+        let out = run(&content(
+            ALICE,
+            group_update(delete_member_change(ALICE, ME)),
+        ));
+        let mutations = member_mutations(out);
+        let [
+            Mutation::GroupMember {
+                change,
+                member_is_me,
+                outgoing,
+                ..
+            },
+        ] = mutations.as_slice()
+        else {
+            panic!()
+        };
+        assert_eq!(*change, signal_core::MemberChange::Removed);
+        assert!(*member_is_me && !*outgoing);
+    }
+
+    #[test]
+    fn garbage_group_change_is_ignored() {
+        let out = run(&content(BOB, group_update(vec![1, 2, 3])));
+        assert!(member_mutations(out).is_empty());
     }
 }

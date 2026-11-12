@@ -12,8 +12,8 @@ use uuid::Uuid;
 use crate::ids::ConversationId;
 use crate::model::Story;
 use crate::model::{
-    Contact, Conversation, Message, MessageKind, MessageStatus, Millis, Reaction, Revision,
-    now_millis,
+    Contact, Conversation, MemberChange, Message, MessageKind, MessageStatus, Millis, Reaction,
+    Revision, now_millis,
 };
 use crate::protocol::{Changes, Mutation, NewMessage};
 
@@ -31,7 +31,7 @@ pub enum DbError {
 
 pub type Result<T> = std::result::Result<T, DbError>;
 
-pub const SCHEMA_VERSION: i64 = 6;
+pub const SCHEMA_VERSION: i64 = 7;
 
 const MIGRATIONS: &[&str] = &[
     // v1
@@ -119,6 +119,10 @@ const MIGRATIONS: &[&str] = &[
     ALTER TABLE conversations ADD COLUMN avatar TEXT;
     ALTER TABLE conversations ADD COLUMN about TEXT;
     "#,
+    // v7: groups this account has left
+    r#"
+    ALTER TABLE conversations ADD COLUMN left_group INTEGER NOT NULL DEFAULT 0;
+    "#,
 ];
 
 pub struct Database {
@@ -131,7 +135,7 @@ const MESSAGE_COLUMNS: &str = "id, conversation_id, author, sent_at, received_at
 
 const CONVERSATION_COLUMNS: &str = "id, title, last_activity, last_preview, last_preview_outgoing, \
      unread_count, pinned, archived, muted_until, draft, members, marked_unread, expire_timer, \
-     blocked, accepted, avatar, about";
+     blocked, accepted, avatar, about, left_group";
 
 fn bool_col(row: &Row, idx: usize) -> rusqlite::Result<bool> {
     Ok(row.get::<_, i64>(idx)? != 0)
@@ -219,6 +223,7 @@ fn conversation_from_row(row: &Row) -> rusqlite::Result<Conversation> {
         accepted: bool_col(row, 14)?,
         avatar: row.get(15)?,
         about: row.get(16)?,
+        left: bool_col(row, 17)?,
     })
 }
 
@@ -643,6 +648,13 @@ impl Writer<'_> {
             .unwrap_or_else(|| "Unknown contact".into()))
     }
 
+    fn ensure_conversation_row(&self, id: &ConversationId) -> Result<Conversation> {
+        self.ensure_conversation(id)?;
+        Ok(self
+            .conversation(id)?
+            .expect("ensure_conversation created it"))
+    }
+
     fn ensure_conversation(&self, id: &ConversationId) -> Result<()> {
         let title = match id {
             ConversationId::Direct(u) => self.contact_name(u)?,
@@ -675,7 +687,7 @@ impl Writer<'_> {
             |r| r.get(0),
         )?;
         let (activity, preview, outgoing) = match &last {
-            Some(m) => (m.sent_at, self.preview_of(m)?, m.outgoing),
+            Some(m) => (m.sent_at, self.preview_of(m)?, m.outgoing && !m.is_notice()),
             None => (0, String::new(), false),
         };
         self.conn.execute(
@@ -1171,6 +1183,42 @@ impl Writer<'_> {
                     .conversations
                     .extend(self.conversation(&conversation)?);
             }
+            Mutation::GroupMember {
+                conversation,
+                actor,
+                member,
+                change,
+                outgoing,
+                member_is_me,
+                at,
+            } => {
+                let mut members = self.ensure_conversation_row(&conversation)?.members;
+                members.retain(|m| *m != member);
+                if change == MemberChange::Added {
+                    members.push(member);
+                }
+                self.conn.execute(
+                    "UPDATE conversations SET members = ?2 WHERE id = ?1",
+                    params![conversation.to_string(), serde_json::to_string(&members)?],
+                )?;
+                if member_is_me {
+                    let left = change != MemberChange::Added;
+                    self.set_column(&conversation, "left_group", left as i64)?;
+                }
+                let mut notice = NewMessage::text(conversation, actor, at, outgoing, "");
+                notice.read = true;
+                notice.kind = MessageKind::GroupMember {
+                    change,
+                    member,
+                    member_is_me,
+                };
+                if let Some(id) = self.insert_message(&notice)? {
+                    changes.messages.push(self.message(id)?);
+                }
+                changes
+                    .conversations
+                    .push(self.refresh_summary(&conversation)?);
+            }
             Mutation::SetBlocked {
                 conversation,
                 blocked,
@@ -1204,6 +1252,28 @@ impl Writer<'_> {
                 Some(self.contact_name(&m.author)?)
             };
             return Ok(crate::model::timer_notice(who.as_deref(), *secs));
+        }
+        if let MessageKind::GroupMember {
+            change,
+            member,
+            member_is_me,
+        } = &m.kind
+        {
+            let actor = if m.outgoing {
+                None
+            } else {
+                Some(self.contact_name(&m.author)?)
+            };
+            let member = if *member_is_me {
+                None
+            } else {
+                Some(self.contact_name(member)?)
+            };
+            return Ok(crate::model::member_notice(
+                actor.as_deref(),
+                member.as_deref(),
+                *change,
+            ));
         }
         if m.deleted || m.body_ranges.is_empty() {
             return Ok(m.preview());

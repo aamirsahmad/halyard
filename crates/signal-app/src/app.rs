@@ -1367,10 +1367,39 @@ impl SignalApp {
                 .filter_map(|(u, _)| Some((*u, self.photo_for(&ConversationId::Direct(*u))?)))
                 .collect(),
         };
+        let leave = match id {
+            ConversationId::Group(key) if !self.state.conversation(&id).is_some_and(|c| c.left) => {
+                Some(key)
+            }
+            _ => None,
+        };
+        let entity = cx.entity().downgrade();
         window.open_dialog(cx, move |dialog, _, _| {
-            crate::views::details::details_dialog(
+            use gpui_kit::component::button::{Button, ButtonVariants as _};
+            use gpui_kit::{ParentElement as _, Styled as _};
+            let dialog = crate::views::details::details_dialog(
                 dialog, &title, id, &members, &phones, me, &extras, &palette,
-            )
+            );
+            match leave {
+                Some(key) => {
+                    let entity = entity.clone();
+                    dialog.child(
+                        gpui_kit::div().pt_3().child(
+                            Button::new("details-leave-group")
+                                .danger()
+                                .outline()
+                                .label("Leave group")
+                                .on_click(move |_, window, cx| {
+                                    window.close_dialog(cx);
+                                    let _ = entity.update(cx, |this, cx| {
+                                        this.confirm_leave_group(key, window, cx)
+                                    });
+                                }),
+                        ),
+                    )
+                }
+                None => dialog,
+            }
         });
     }
 

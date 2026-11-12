@@ -211,6 +211,28 @@ mod rendering {
             },
         );
         assert!(narrow.width() < light.width());
+        let _left = capture_sized(
+            "left-group",
+            ThemeMode::Light,
+            1120.,
+            |db| {
+                let me = signal_backend::demo::DEMO_ME;
+                db.apply(Mutation::GroupMember {
+                    conversation: ConversationId::Group(DEMO_GROUP),
+                    actor: me,
+                    member: me,
+                    change: signal_core::MemberChange::Left,
+                    outgoing: true,
+                    member_is_me: true,
+                    at: now_millis(),
+                })
+                .unwrap();
+            },
+            |app, window, cx| {
+                registered(app, window, cx);
+                app.open_conversation(ConversationId::Group(DEMO_GROUP), window, cx);
+            },
+        );
         assert_eq!(light.dimensions(), dark.dimensions());
         assert_ne!(
             light.as_raw(),

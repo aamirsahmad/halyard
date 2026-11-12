@@ -377,6 +377,15 @@ fn demo_reaction(
         });
     };
     match cmd {
+        BackendCommand::LeaveGroup { group } => vec![Mutation::GroupMember {
+            conversation: ConversationId::Group(group),
+            actor: DEMO_ME,
+            member: DEMO_ME,
+            change: signal_core::MemberChange::Left,
+            outgoing: true,
+            member_is_me: true,
+            at: ts,
+        }],
         BackendCommand::Forward {
             targets,
             body,

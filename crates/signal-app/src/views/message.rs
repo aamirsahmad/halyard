@@ -17,7 +17,8 @@ use gpui_kit::{
 use signal_core::format::{file_size, message_time};
 use signal_core::timeline::{TimelineItem, TimelineMessage};
 use signal_core::{
-    Attachment, Message, MessageKind, MessageStatus, avatar, now_millis, timer_notice, timer_short,
+    Attachment, Message, MessageKind, MessageStatus, avatar, member_notice, now_millis,
+    timer_notice, timer_short,
 };
 
 use crate::app::{QUICK_REACTIONS, SignalApp, TimelineData};
@@ -95,6 +96,29 @@ fn render_message(
     p: &Palette,
     app: WeakEntity<SignalApp>,
 ) -> AnyElement {
+    if let MessageKind::GroupMember {
+        change,
+        member,
+        member_is_me,
+    } = &m.kind
+    {
+        let name = |u: &uuid::Uuid| data.names.get(u).cloned().unwrap_or("Someone".into());
+        let actor = (!m.outgoing).then(|| name(&m.author));
+        let member = (!member_is_me).then(|| name(member));
+        return div()
+            .id(ElementId::Name(format!("row-{}", m.id).into()))
+            .flex()
+            .justify_center()
+            .items_center()
+            .gap_1()
+            .py_2()
+            .text_size(rem_px(12.))
+            .text_color(p.text_secondary)
+            .child(Icon::new(Icons::Users).xsmall())
+            .child(member_notice(actor.as_deref(), member.as_deref(), *change))
+            .test_support()
+            .into_any_element();
+    }
     if let MessageKind::TimerChanged { secs } = &m.kind {
         let who = if m.outgoing {
             None

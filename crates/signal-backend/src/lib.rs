@@ -4,9 +4,13 @@
 //! through [`signal_core::BackendCommand`]s and [`signal_core::BackendEvent`]s.
 
 pub mod demo;
+pub mod groups;
 pub mod interpret;
 pub mod paths;
 pub mod worker;
+
+/// User agent for requests this crate makes itself.
+pub const USER_AGENT: &str = concat!("signal-gpui/", env!("CARGO_PKG_VERSION"));
 
 pub use paths::DataPaths;
 pub use presage;

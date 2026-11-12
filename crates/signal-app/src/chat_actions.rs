@@ -105,6 +105,37 @@ impl SignalApp {
         });
     }
 
+    /// Asks before leaving a group, like Signal Desktop.
+    pub fn confirm_leave_group(
+        &mut self,
+        group: signal_core::GroupKey,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let entity = cx.entity().downgrade();
+        window.open_alert_dialog(cx, move |dialog, _, _| {
+            let entity = entity.clone();
+            dialog
+                .title("Leave group?")
+                .description(
+                    "You will no longer be able to send or receive messages in this group.",
+                )
+                .ok_text("Leave")
+                .ok_variant(gpui_kit::component::button::ButtonVariant::Danger)
+                .show_cancel(true)
+                .on_ok(move |_, _, cx| {
+                    let _ = entity.update(cx, |this, cx| this.leave_group(group, cx));
+                    true
+                })
+        });
+    }
+
+    /// Leaves the group; the backend reports back with a "You left" notice.
+    pub fn leave_group(&mut self, group: signal_core::GroupKey, cx: &mut Context<Self>) {
+        self.commands.send(BackendCommand::LeaveGroup { group });
+        cx.notify();
+    }
+
     pub fn delete_conversation(&mut self, id: ConversationId, cx: &mut Context<Self>) {
         self.apply_local(Mutation::DeleteConversation { conversation: id }, cx);
     }
