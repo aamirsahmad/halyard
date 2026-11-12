@@ -309,6 +309,71 @@ mod rendering {
                 app.open_conversation(ConversationId::Group(DEMO_GROUP), window, cx);
             },
         );
+        let call = |phase: signal_core::CallPhase, muted: bool| signal_core::CallInfo {
+            contact: DEMO_ALICE,
+            outgoing: false,
+            video_offered: false,
+            phase,
+            muted,
+            remote_muted: false,
+        };
+        let ringing = call(signal_core::CallPhase::IncomingRinging, false);
+        let _incoming = capture("incoming-call", ThemeMode::Light, move |app, window, cx| {
+            registered(app, window, cx);
+            app.open_conversation(ConversationId::Direct(DEMO_ALICE), window, cx);
+            app.handle_event(BackendEvent::Call(ringing), window, cx);
+        });
+        let active = call(
+            signal_core::CallPhase::Connected {
+                since: now_millis() - 83_000,
+            },
+            true,
+        );
+        let screen = capture("call-screen", ThemeMode::Light, move |app, window, cx| {
+            registered(app, window, cx);
+            app.handle_event(BackendEvent::Call(active), window, cx);
+        });
+        // the call screen is dark in both themes (#1b1b1b)
+        let px = screen.get_pixel(600, 100).0;
+        assert!(px[0] < 40 && px[1] < 40 && px[2] < 40, "call screen {px:?}");
+        let _history = capture_sized(
+            "call-history",
+            ThemeMode::Dark,
+            1120.,
+            |db| {
+                let now = now_millis();
+                for (outgoing, outcome, ago) in [
+                    (false, signal_core::CallOutcome::Missed, 90_000),
+                    (true, signal_core::CallOutcome::Answered, 60_000),
+                    (false, signal_core::CallOutcome::Declined, 30_000),
+                ] {
+                    let author = if outgoing {
+                        signal_backend::demo::DEMO_ME
+                    } else {
+                        DEMO_ALICE
+                    };
+                    let mut m = signal_core::NewMessage::text(
+                        ConversationId::Direct(DEMO_ALICE),
+                        author,
+                        now - ago,
+                        outgoing,
+                        "",
+                    );
+                    m.read = true;
+                    m.kind = signal_core::MessageKind::Call {
+                        outcome,
+                        video: false,
+                        duration_secs: 0,
+                    };
+                    db.apply(Mutation::InsertMessage(m)).unwrap();
+                }
+            },
+            |app, window, cx| {
+                app.set_appearance(signal_app::theme::Appearance::Dark, window, cx);
+                registered(app, window, cx);
+                app.open_conversation(ConversationId::Direct(DEMO_ALICE), window, cx);
+            },
+        );
         assert_eq!(light.dimensions(), dark.dimensions());
         assert_ne!(
             light.as_raw(),

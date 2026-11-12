@@ -15,6 +15,6 @@
   <key>NSHighResolutionCapable</key><true/>
   <key>LSApplicationCategoryType</key><string>public.app-category.social-networking</string>
   <key>NSUserNotificationAlertStyle</key><string>banner</string>
-  <key>NSMicrophoneUsageDescription</key><string>Halyard uses the microphone to record voice messages.</string>
+  <key>NSMicrophoneUsageDescription</key><string>Halyard uses the microphone for voice calls and voice messages.</string>
 </dict>
 </plist>

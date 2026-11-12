@@ -6,7 +6,7 @@ use uuid::Uuid;
 
 use crate::ids::ConversationId;
 use crate::model::{Conversation, Message};
-use crate::protocol::{AccountState, BackendEvent, ConnectionState};
+use crate::protocol::{AccountState, BackendEvent, CallInfo, CallPhase, ConnectionState};
 
 /// Side effects the UI should perform after applying an event.
 #[derive(Clone, Debug, PartialEq, Default)]
@@ -40,6 +40,8 @@ pub struct ChatState {
     /// Whether the app window is focused (affects read marking/notifications).
     pub window_active: bool,
     pub last_error: Option<String>,
+    /// The current 1:1 call, or one that just ended (the UI clears it).
+    pub call: Option<CallInfo>,
 }
 
 impl Default for ChatState {
@@ -56,6 +58,7 @@ impl Default for ChatState {
             typing: HashMap::new(),
             window_active: true,
             last_error: None,
+            call: None,
         }
     }
 }
@@ -288,6 +291,26 @@ impl ChatState {
             BackendEvent::ContactsChanged
             | BackendEvent::StoriesChanged
             | BackendEvent::SafetyNumber { .. } => {}
+            BackendEvent::Call(info) => {
+                let newly_ringing = info.phase == CallPhase::IncomingRinging
+                    && self
+                        .call
+                        .as_ref()
+                        .is_none_or(|c| c.phase != CallPhase::IncomingRinging);
+                if newly_ringing && !self.window_active {
+                    let conversation = ConversationId::Direct(info.contact);
+                    let title = self
+                        .conversation(&conversation)
+                        .map(|c| c.title.clone())
+                        .unwrap_or_else(|| author_name(&info.contact));
+                    fx.notify = Some(Notification {
+                        conversation,
+                        title,
+                        body: "Incoming voice call".into(),
+                    });
+                }
+                self.call = Some(info);
+            }
             BackendEvent::Error(e) => self.last_error = Some(e),
         }
         fx

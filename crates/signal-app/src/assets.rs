@@ -44,9 +44,14 @@ pub mod signal_icons {
     pub const SENT: &str = "signal/messagestatus-sent.svg";
     pub const DELIVERED: &str = "signal/messagestatus-delivered.svg";
     pub const READ: &str = "signal/messagestatus-read.svg";
+    pub const PHONE: &str = "signal/phone.svg";
+    pub const PHONE_FILL: &str = "signal/phone-fill.svg";
+    pub const PHONE_DOWN: &str = "signal/phone-down-fill.svg";
+    pub const MIC: &str = "signal/mic-fill.svg";
+    pub const MIC_OFF: &str = "signal/mic-slash-fill.svg";
 }
 
-const SIGNAL_ICONS: [(&str, &[u8]); 5] = [
+const SIGNAL_ICONS: [(&str, &[u8]); 10] = [
     (
         signal_icons::SEND,
         include_bytes!("../assets/signal/send-fill.svg"),
@@ -66,6 +71,26 @@ const SIGNAL_ICONS: [(&str, &[u8]); 5] = [
     (
         signal_icons::READ,
         include_bytes!("../assets/signal/messagestatus-read.svg"),
+    ),
+    (
+        signal_icons::PHONE,
+        include_bytes!("../assets/signal/phone.svg"),
+    ),
+    (
+        signal_icons::PHONE_FILL,
+        include_bytes!("../assets/signal/phone-fill.svg"),
+    ),
+    (
+        signal_icons::PHONE_DOWN,
+        include_bytes!("../assets/signal/phone-down-fill.svg"),
+    ),
+    (
+        signal_icons::MIC,
+        include_bytes!("../assets/signal/mic-fill.svg"),
+    ),
+    (
+        signal_icons::MIC_OFF,
+        include_bytes!("../assets/signal/mic-slash-fill.svg"),
     ),
 ];
 
@@ -113,6 +138,11 @@ mod tests {
             signal_icons::SENT,
             signal_icons::DELIVERED,
             signal_icons::READ,
+            signal_icons::PHONE,
+            signal_icons::PHONE_FILL,
+            signal_icons::PHONE_DOWN,
+            signal_icons::MIC,
+            signal_icons::MIC_OFF,
         ] {
             let bytes = Assets.load(path).unwrap().expect(path);
             assert!(bytes.starts_with(b"<svg"), "{path}");

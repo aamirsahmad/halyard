@@ -3,12 +3,15 @@
 //! The output device is opened lazily on first play, so machines without an
 //! audio device (CI, servers) only see an error when the user presses play.
 
+use std::borrow::Cow;
 use std::io::Cursor;
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use rodio::Source as _;
+
+use crate::settings::Ringtone;
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct PlaybackStatus {
@@ -174,6 +177,40 @@ impl AudioPlayer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ringtones_are_quiet_loops() {
+        for tone in Ringtone::ALL {
+            let Some(samples) = ringtone_samples(tone) else {
+                assert!(matches!(tone, Ringtone::Signal | Ringtone::Silent));
+                continue;
+            };
+            let secs = samples.len() as f32 / SYNTH_RATE as f32;
+            assert!((2.0..=4.0).contains(&secs), "{tone:?}: {secs}s");
+            let peak = samples.iter().fold(0f32, |m, s| m.max(s.abs()));
+            assert!(peak > 0.1 && peak < 0.9, "{tone:?} peak {peak}");
+            // the round ends in silence, so looping doesn't click
+            assert!(samples[samples.len() - 100..].iter().all(|s| *s == 0.));
+            let wav = ringtone_bytes(tone).unwrap();
+            // RINGTONE_DIR=<dir> saves the tones to listen to them
+            if let Ok(dir) = std::env::var("RINGTONE_DIR") {
+                std::fs::create_dir_all(&dir).unwrap();
+                std::fs::write(format!("{dir}/{}.wav", tone.label()), &wav).unwrap();
+            }
+            let d = rodio::Decoder::new(Cursor::new(wav)).expect("decodes");
+            assert!(d.take(100).count() == 100);
+        }
+        assert!(ringtone_bytes(Ringtone::Silent).is_none());
+    }
+
+    #[test]
+    fn call_sounds_decode() {
+        for bytes in [RINGTONE, END_CALL] {
+            let d = rodio::Decoder::new(Cursor::new(bytes)).expect("decodes");
+            assert!(d.total_duration().is_none_or(|t| t > Duration::ZERO));
+            assert!(d.take(100).count() == 100, "has samples");
+        }
+    }
 
     /// A 0.5 s, 8 kHz mono 16-bit PCM WAV of silence.
     fn wav() -> Vec<u8> {
@@ -468,5 +505,223 @@ mod recording_tests {
         assert_eq!(wav.len(), 44 + 2 * VOICE_NOTE_RATE as usize);
         let d = clip_duration(wav).unwrap();
         assert!((d.as_millis() as i64 - 1000).abs() <= 5, "{d:?}");
+    }
+}
+
+/// Signal Desktop's call sounds.
+const RINGTONE: &[u8] = include_bytes!("../assets/sounds/ringtone_minimal.ogg");
+const END_CALL: &[u8] = include_bytes!("../assets/sounds/navigation-cancel.ogg");
+
+/// A call sound to start or stop.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CallSound {
+    /// Loop a ringtone (an incoming call rings).
+    Ring(Ringtone),
+    /// Play one round of a ringtone (choosing one in Preferences).
+    Preview(Ringtone),
+    /// Stop the ringtone.
+    StopRing,
+    /// Play the hang-up tone once.
+    End,
+}
+
+const SYNTH_RATE: u32 = 44_100;
+
+/// One round of a ringtone as mono samples at 44.1 kHz, ending in silence so
+/// that it can loop. `None` for Signal's recorded ringtone and for Silent.
+pub fn ringtone_samples(tone: Ringtone) -> Option<Vec<f32>> {
+    use std::f32::consts::TAU;
+    let rate = SYNTH_RATE as f32;
+    let mut out: Vec<f32> = Vec::new();
+    // adds a note at `start` seconds: frequencies with relative amplitudes,
+    // shaped by `env(t)`
+    let mut note = |start: f32, len: f32, partials: &[(f32, f32)], env: &dyn Fn(f32) -> f32| {
+        let first = (start * rate) as usize;
+        let n = (len * rate) as usize;
+        if out.len() < first + n {
+            out.resize(first + n, 0.);
+        }
+        for i in 0..n {
+            let t = i as f32 / rate;
+            // 5 ms fade in and out against clicks
+            let edge = (t / 0.005).min((len - t) / 0.005).clamp(0., 1.);
+            let v: f32 = partials.iter().map(|(f, a)| a * (TAU * f * t).sin()).sum();
+            out[first + i] += v * env(t) * edge;
+        }
+    };
+    let total = match tone {
+        Ringtone::Signal | Ringtone::Silent => return None,
+        Ringtone::Classic => {
+            // the telephone double ring: 400 + 450 Hz, on 0.4 s, off 0.2 s, on 0.4 s
+            let flat = |_: f32| 0.22;
+            note(0.0, 0.4, &[(400., 1.), (450., 1.)], &flat);
+            note(0.6, 0.4, &[(400., 1.), (450., 1.)], &flat);
+            3.0
+        }
+        Ringtone::Chime => {
+            // E6, C6, G5 bells
+            let bell = |t: f32| 0.32 * (-t * 3.5).exp();
+            for (i, f) in [1318.5_f32, 1046.5, 784.0].into_iter().enumerate() {
+                note(
+                    i as f32 * 0.4,
+                    1.2,
+                    &[(f, 1.), (f * 2.76, 0.18), (f * 5.4, 0.06)],
+                    &bell,
+                );
+            }
+            3.2
+        }
+        Ringtone::Marimba => {
+            // C5 E5 G5 C6 E6 G6, twice
+            let mallet = |t: f32| 0.34 * (-t * 9.).exp();
+            let run = [523.25_f32, 659.25, 783.99, 1046.5, 1318.5, 1568.0];
+            for round in 0..2 {
+                for (i, f) in run.into_iter().enumerate() {
+                    let at = round as f32 * 0.9 + i as f32 * 0.12;
+                    note(at, 0.5, &[(f, 1.), (f * 4., 0.12)], &mallet);
+                }
+            }
+            3.2
+        }
+        Ringtone::SciFiPiano => {
+            // A minor add9, rising then settling: A3 E4 B4 C5 E5, then C5 B4 E4 A4.
+            // A soft piano tone, a second voice detuned by 6 cents, and a slow
+            // shimmer; an echo is added below.
+            let piano = |t: f32| {
+                let attack = (t / 0.012).min(1.);
+                let shimmer = 1. + 0.12 * (std::f32::consts::TAU * 4.5 * t).sin();
+                0.16 * attack * (-t * 2.4).exp() * shimmer
+            };
+            let notes = [
+                (0.00, 220.00),
+                (0.22, 329.63),
+                (0.44, 493.88),
+                (0.66, 523.25),
+                (0.88, 659.26),
+                (1.32, 523.25),
+                (1.54, 493.88),
+                (1.76, 329.63),
+                (1.98, 440.00),
+            ];
+            for (at, f) in notes {
+                let partials = [
+                    (f, 1.),
+                    (f * 1.0035, 0.6),
+                    (f * 2., 0.28),
+                    (f * 3., 0.08),
+                    (f * 4.01, 0.04),
+                ];
+                note(at, 1.3, &partials, &piano);
+            }
+            4.0
+        }
+        Ringtone::Pulse => {
+            // three soft 880 Hz beeps
+            let soft = |_: f32| 0.2;
+            for i in 0..3 {
+                note(i as f32 * 0.25, 0.13, &[(880., 1.), (1760., 0.15)], &soft);
+            }
+            2.2
+        }
+    };
+    out.resize((total * rate) as usize, 0.);
+    if tone == Ringtone::SciFiPiano {
+        // a soft echo (0.33 s, fading), then a fade out so the loop is clean
+        let delay = (0.33 * rate) as usize;
+        for i in delay..out.len() {
+            out[i] += out[i - delay] * 0.38;
+        }
+        let fade_end = out.len() - (0.25 * rate) as usize;
+        let fade_start = fade_end - (0.6 * rate) as usize;
+        for (i, s) in out.iter_mut().enumerate().skip(fade_start) {
+            *s *= if i >= fade_end {
+                0.
+            } else {
+                1. - (i - fade_start) as f32 / (fade_end - fade_start) as f32
+            };
+        }
+    }
+    Some(out)
+}
+
+/// The sound file for a ringtone, if it makes a sound.
+fn ringtone_bytes(tone: Ringtone) -> Option<Cow<'static, [u8]>> {
+    match tone {
+        Ringtone::Signal => Some(Cow::Borrowed(RINGTONE)),
+        Ringtone::Silent => None,
+        _ => ringtone_samples(tone).map(|s| Cow::Owned(encode_wav(&s, SYNTH_RATE))),
+    }
+}
+
+/// Plays call sounds on its own thread. The output device opens on the
+/// first sound.
+pub struct CallTones {
+    tx: mpsc::Sender<CallSound>,
+}
+
+impl Default for CallTones {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl CallTones {
+    pub fn new() -> Self {
+        let (tx, rx) = mpsc::channel::<CallSound>();
+        let spawned = std::thread::Builder::new()
+            .name("call-tones".into())
+            .spawn(move || {
+                let mut sink: Option<rodio::MixerDeviceSink> = None;
+                let mut ring: Option<rodio::Player> = None;
+                let mut once: Option<rodio::Player> = None;
+                while let Ok(sound) = rx.recv() {
+                    if let Some(p) = ring.take() {
+                        p.stop();
+                    }
+                    let bytes = match sound {
+                        CallSound::StopRing => continue,
+                        CallSound::Ring(t) | CallSound::Preview(t) => match ringtone_bytes(t) {
+                            Some(b) => b,
+                            None => continue,
+                        },
+                        CallSound::End => Cow::Borrowed(END_CALL),
+                    };
+                    let result = (|| -> Result<rodio::Player, String> {
+                        if sink.is_none() {
+                            sink = Some(
+                                rodio::DeviceSinkBuilder::open_default_sink()
+                                    .map_err(|e| format!("no audio output: {e}"))?,
+                            );
+                        }
+                        let source = rodio::Decoder::new(Cursor::new(bytes))
+                            .map_err(|e| format!("bad sound: {e}"))?;
+                        let player =
+                            rodio::Player::connect_new(sink.as_ref().expect("opened").mixer());
+                        if matches!(sound, CallSound::Ring(_)) {
+                            player.append(source.repeat_infinite());
+                        } else {
+                            player.append(source);
+                        }
+                        Ok(player)
+                    })();
+                    match result {
+                        // a preview stops with the next sound, like the ringtone
+                        Ok(p) if matches!(sound, CallSound::Ring(_) | CallSound::Preview(_)) => {
+                            ring = Some(p)
+                        }
+                        Ok(p) => once = Some(p),
+                        Err(e) => tracing::warn!(%e, "call sound failed"),
+                    }
+                }
+                drop(once);
+            });
+        if let Err(e) = spawned {
+            tracing::error!(%e, "failed to start call tone thread");
+        }
+        Self { tx }
+    }
+
+    pub fn play(&self, sound: CallSound) {
+        let _ = self.tx.send(sound);
     }
 }

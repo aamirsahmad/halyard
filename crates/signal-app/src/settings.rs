@@ -43,6 +43,63 @@ impl NotificationContent {
     }
 }
 
+/// The sound of an incoming call. Signal's apps have one ringtone; Halyard
+/// also offers a few of its own (made in code, see `audio::ringtone_samples`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum Ringtone {
+    /// Signal Desktop's ringtone.
+    #[default]
+    Signal,
+    /// A telephone double ring.
+    Classic,
+    /// Three falling bell notes.
+    Chime,
+    /// A quick marimba run.
+    Marimba,
+    /// Soft beeps.
+    Pulse,
+    /// Soft piano notes with a shimmer and an echo.
+    SciFiPiano,
+    /// No sound; the call still shows and notifies.
+    Silent,
+}
+
+impl Ringtone {
+    pub const ALL: [Ringtone; 7] = [
+        Self::Signal,
+        Self::Classic,
+        Self::Chime,
+        Self::Marimba,
+        Self::Pulse,
+        Self::SciFiPiano,
+        Self::Silent,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Signal => "Signal",
+            Self::Classic => "Classic",
+            Self::Chime => "Chime",
+            Self::Marimba => "Marimba",
+            Self::Pulse => "Pulse",
+            Self::SciFiPiano => "Sci-fi piano",
+            Self::Silent => "Silent",
+        }
+    }
+
+    fn key(self) -> &'static str {
+        match self {
+            Self::Signal => "signal",
+            Self::Classic => "classic",
+            Self::Chime => "chime",
+            Self::Marimba => "marimba",
+            Self::Pulse => "pulse",
+            Self::SciFiPiano => "scifi_piano",
+            Self::Silent => "silent",
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Preferences {
     pub appearance: Appearance,
@@ -54,6 +111,7 @@ pub struct Preferences {
     pub enter_sends: bool,
     /// UI zoom factor (1.0 = 100%).
     pub zoom: f32,
+    pub ringtone: Ringtone,
 }
 
 /// Zoom steps offered by ⌘/Ctrl +/−, like Signal Desktop.
@@ -78,6 +136,7 @@ impl Default for Preferences {
             typing_indicators: true,
             enter_sends: true,
             zoom: 1.0,
+            ringtone: Ringtone::Signal,
         }
     }
 }
@@ -120,6 +179,12 @@ impl Preferences {
                     p.typing_indicators = parse_bool(v).unwrap_or(p.typing_indicators)
                 }
                 "enter_sends" => p.enter_sends = parse_bool(v).unwrap_or(p.enter_sends),
+                "ringtone" => {
+                    p.ringtone = Ringtone::ALL
+                        .into_iter()
+                        .find(|r| r.key() == v.trim())
+                        .unwrap_or_default()
+                }
                 "zoom" => {
                     if let Ok(z) = v.trim().parse::<f32>()
                         && (0.5..=2.0).contains(&z)
@@ -141,13 +206,14 @@ impl Preferences {
         };
         let text = format!(
             "appearance={appearance}\nnotifications={}\nnotification_content={}\nread_receipts={}\n\
-             typing_indicators={}\nenter_sends={}\nzoom={}\n",
+             typing_indicators={}\nenter_sends={}\nzoom={}\nringtone={}\n",
             self.notifications,
             self.notification_content.key(),
             self.read_receipts,
             self.typing_indicators,
             self.enter_sends,
             self.zoom,
+            self.ringtone.key(),
         );
         let tmp = path.with_extension("conf.tmp");
         std::fs::write(&tmp, text)?;
@@ -172,6 +238,7 @@ mod tests {
             typing_indicators: false,
             enter_sends: false,
             zoom: 1.25,
+            ringtone: Ringtone::Marimba,
         };
         p.save(&path).unwrap();
         assert_eq!(Preferences::load(&path), p);

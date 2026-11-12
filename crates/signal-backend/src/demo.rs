@@ -326,6 +326,8 @@ pub fn spawn_demo(
             events(BackendEvent::Account(AccountState::Registered(demo_account())));
             events(BackendEvent::Connection(ConnectionState::Online));
             let (later_tx, mut later_rx) = mpsc::unbounded_channel::<Mutation>();
+            let (call_tx, mut call_rx) = mpsc::unbounded_channel::<(u64, CallStep)>();
+            let mut call = DemoCall::default();
             let mut last_ts = 0;
             let mut sweep = tokio::time::interval(Duration::from_secs(1));
             loop {
@@ -339,6 +341,14 @@ pub fn spawn_demo(
                         let Some(cmd) = cmd else { break };
                         if cmd == BackendCommand::Shutdown { break; }
                         last_ts = next_timestamp(last_ts, now_millis());
+                        if let Some(ms) = call.command(&cmd, last_ts, &call_tx, reply_delay, &events) {
+                            for m in ms {
+                                if let Ok(ch) = db.apply(m) {
+                                    ch.into_events().into_iter().for_each(|e| events(e));
+                                }
+                            }
+                            continue;
+                        }
                         for m in demo_reaction(cmd, last_ts, &db, &later_tx, reply_delay, &events) {
                             match db.apply(m) {
                                 Ok(ch) => ch.into_events().into_iter().for_each(|e| events(e)),
@@ -346,6 +356,7 @@ pub fn spawn_demo(
                             }
                         }
                     }
+                    Some((seq, step)) = call_rx.recv() => call.step(seq, step, &events),
                     Some(m) = later_rx.recv() => {
                         if let Mutation::InsertMessage(n) = &m {
                             events(BackendEvent::Typing { conversation: n.conversation, who: n.author, started: false });
@@ -360,6 +371,187 @@ pub fn spawn_demo(
         });
     })?;
     Ok(BackendHandle::from_parts(tx, thread))
+}
+
+/// Simulated call steps, scheduled after a delay.
+#[derive(Clone, Copy, Debug)]
+enum CallStep {
+    /// A contact calls you (after you send them "call me").
+    Ring(Uuid),
+    /// The other side's phone rings.
+    RemoteRinging,
+    /// Audio connects.
+    Connect,
+}
+
+/// A simulated 1:1 call. Outgoing calls are answered; send "call me" to a
+/// contact and they call you back.
+#[derive(Default)]
+struct DemoCall {
+    info: Option<signal_core::CallInfo>,
+    /// Steps from an older call are ignored.
+    seq: u64,
+    started_at: Millis,
+    connected_at: Option<Millis>,
+}
+
+impl DemoCall {
+    fn schedule(
+        &self,
+        tx: &mpsc::UnboundedSender<(u64, CallStep)>,
+        after: Duration,
+        step: CallStep,
+    ) {
+        let tx = tx.clone();
+        let seq = self.seq;
+        tokio::spawn(async move {
+            tokio::time::sleep(after).await;
+            let _ = tx.send((seq, step));
+        });
+    }
+
+    fn emit(&self, events: &EventSink) {
+        if let Some(info) = &self.info {
+            events(BackendEvent::Call(info.clone()));
+        }
+    }
+
+    /// Handles call commands. Returns `Some` (with any history entry to
+    /// store) when the command was a call command.
+    fn command(
+        &mut self,
+        cmd: &BackendCommand,
+        ts: Millis,
+        tx: &mpsc::UnboundedSender<(u64, CallStep)>,
+        delay: Duration,
+        events: &EventSink,
+    ) -> Option<Vec<Mutation>> {
+        use signal_core::{CallInfo, CallPhase};
+        match cmd {
+            BackendCommand::StartCall { contact } => {
+                if self.info.is_some() {
+                    events(BackendEvent::Error("You are already in a call.".into()));
+                    return Some(vec![]);
+                }
+                self.seq += 1;
+                self.started_at = ts;
+                self.connected_at = None;
+                self.info = Some(CallInfo {
+                    contact: *contact,
+                    outgoing: true,
+                    video_offered: false,
+                    phase: CallPhase::Calling,
+                    muted: false,
+                    remote_muted: false,
+                });
+                self.emit(events);
+                self.schedule(tx, delay, CallStep::RemoteRinging);
+                self.schedule(tx, delay * 4, CallStep::Connect);
+                Some(vec![])
+            }
+            BackendCommand::AcceptCall => {
+                if let Some(info) = &mut self.info
+                    && info.phase == CallPhase::IncomingRinging
+                {
+                    info.phase = CallPhase::Connecting;
+                    self.emit(events);
+                    self.schedule(tx, delay, CallStep::Connect);
+                }
+                Some(vec![])
+            }
+            BackendCommand::SetCallMuted(muted) => {
+                if let Some(info) = &mut self.info {
+                    info.muted = *muted;
+                    self.emit(events);
+                }
+                Some(vec![])
+            }
+            BackendCommand::HangUp => {
+                let mut info = self.info.take()?;
+                self.seq += 1;
+                let connected = self.connected_at.is_some();
+                let reason = crate::calls::EndReason::LocalHangup;
+                let accepted = info.outgoing || info.phase != CallPhase::IncomingRinging;
+                let outcome = crate::calls::outcome(info.outgoing, connected, accepted, reason);
+                info.phase = CallPhase::Ended {
+                    reason: crate::calls::end_text(reason, connected).into(),
+                };
+                events(BackendEvent::Call(info.clone()));
+                let author = if info.outgoing { DEMO_ME } else { info.contact };
+                let mut entry = NewMessage::text(
+                    ConversationId::Direct(info.contact),
+                    author,
+                    self.started_at,
+                    info.outgoing,
+                    "",
+                );
+                entry.read = true;
+                entry.kind = MessageKind::Call {
+                    outcome,
+                    video: false,
+                    duration_secs: self
+                        .connected_at
+                        .map(|t| ((ts - t).max(0) / 1000) as u32)
+                        .unwrap_or(0),
+                };
+                Some(vec![Mutation::InsertMessage(entry)])
+            }
+            BackendCommand::SendText {
+                conversation: ConversationId::Direct(contact),
+                body,
+                ..
+            } if body.trim().eq_ignore_ascii_case("call me") && *contact != DEMO_ME => {
+                let seq = self.seq;
+                let tx = tx.clone();
+                let contact = *contact;
+                tokio::spawn(async move {
+                    tokio::time::sleep(delay * 2).await;
+                    let _ = tx.send((seq, CallStep::Ring(contact)));
+                });
+                None
+            }
+            _ => None,
+        }
+    }
+
+    fn step(&mut self, seq: u64, step: CallStep, events: &EventSink) {
+        use signal_core::{CallInfo, CallPhase};
+        if seq != self.seq {
+            return;
+        }
+        match step {
+            CallStep::Ring(contact) => {
+                if self.info.is_some() {
+                    return;
+                }
+                self.seq += 1;
+                self.started_at = now_millis();
+                self.connected_at = None;
+                self.info = Some(CallInfo {
+                    contact,
+                    outgoing: false,
+                    video_offered: false,
+                    phase: CallPhase::IncomingRinging,
+                    muted: false,
+                    remote_muted: false,
+                });
+            }
+            CallStep::RemoteRinging => {
+                if let Some(info) = &mut self.info
+                    && info.phase == CallPhase::Calling
+                {
+                    info.phase = CallPhase::OutgoingRinging;
+                }
+            }
+            CallStep::Connect => {
+                if let Some(info) = &mut self.info {
+                    let since = *self.connected_at.get_or_insert(now_millis());
+                    info.phase = CallPhase::Connected { since };
+                }
+            }
+        }
+        self.emit(events);
+    }
 }
 
 /// Computes the immediate mutations for a command and schedules simulated
@@ -384,6 +576,11 @@ fn demo_reaction(
         BackendCommand::MessageRequestResponse { .. } | BackendCommand::SyncBlockedList => {
             vec![]
         }
+        // handled by DemoCall
+        BackendCommand::StartCall { .. }
+        | BackendCommand::AcceptCall
+        | BackendCommand::HangUp
+        | BackendCommand::SetCallMuted(_) => vec![],
         BackendCommand::PostStory {
             text,
             background,
@@ -736,5 +933,99 @@ mod tests {
         assert!(events.iter().any(
             |e| matches!(e, BackendEvent::MessageUpserted(m) if m.body == "You said: “ping”")
         ));
+    }
+
+    /// Collects events from a demo backend and waits for conditions.
+    fn demo_with_events() -> (
+        BackendHandle,
+        Arc<Mutex<Vec<BackendEvent>>>,
+        tempfile::TempDir,
+    ) {
+        let dir = tempfile::tempdir().unwrap();
+        let events: Arc<Mutex<Vec<BackendEvent>>> = Arc::default();
+        let sink = {
+            let events = events.clone();
+            Arc::new(move |e| events.lock().unwrap().push(e)) as EventSink
+        };
+        let handle = spawn_demo(
+            dir.path().join("demo.db"),
+            None,
+            sink,
+            Duration::from_millis(20),
+        )
+        .unwrap();
+        (handle, events, dir)
+    }
+
+    fn wait_for(events: &Arc<Mutex<Vec<BackendEvent>>>, f: impl Fn(&BackendEvent) -> bool) {
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while !events.lock().unwrap().iter().any(&f) {
+            assert!(std::time::Instant::now() < deadline, "timed out");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+
+    #[test]
+    fn demo_outgoing_call_connects_and_records_history() {
+        use signal_core::{CallOutcome, CallPhase};
+        let (handle, events, _dir) = demo_with_events();
+        handle.send(BackendCommand::StartCall {
+            contact: DEMO_ALICE,
+        });
+        wait_for(
+            &events,
+            |e| matches!(e, BackendEvent::Call(c) if matches!(c.phase, CallPhase::Connected { .. })),
+        );
+        handle.send(BackendCommand::SetCallMuted(true));
+        wait_for(&events, |e| matches!(e, BackendEvent::Call(c) if c.muted));
+        handle.send(BackendCommand::HangUp);
+        wait_for(&events, |e| {
+            matches!(e, BackendEvent::MessageUpserted(m)
+                if m.kind == MessageKind::Call { outcome: CallOutcome::Answered, video: false, duration_secs: 0 }
+                    && m.outgoing)
+        });
+        handle.shutdown();
+        let phases: Vec<CallPhase> = events
+            .lock()
+            .unwrap()
+            .iter()
+            .filter_map(|e| match e {
+                BackendEvent::Call(c) => Some(c.phase.clone()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(phases[0], CallPhase::Calling);
+        assert_eq!(phases[1], CallPhase::OutgoingRinging);
+        assert!(matches!(phases.last(), Some(CallPhase::Ended { .. })));
+    }
+
+    #[test]
+    fn demo_contact_calls_back_on_request() {
+        use signal_core::CallPhase;
+        let (handle, events, _dir) = demo_with_events();
+        handle.send(BackendCommand::SendText {
+            conversation: ConversationId::Direct(DEMO_BOB),
+            body: "Call me".into(),
+            quote: None,
+            attachments: vec![],
+            ranges: vec![],
+        });
+        wait_for(
+            &events,
+            |e| matches!(e, BackendEvent::Call(c) if c.contact == DEMO_BOB && c.phase == CallPhase::IncomingRinging),
+        );
+        handle.send(BackendCommand::AcceptCall);
+        wait_for(
+            &events,
+            |e| matches!(e, BackendEvent::Call(c) if matches!(c.phase, CallPhase::Connected { .. })),
+        );
+        handle.send(BackendCommand::StartCall {
+            contact: DEMO_ALICE,
+        });
+        wait_for(
+            &events,
+            |e| matches!(e, BackendEvent::Error(m) if m.contains("already in a call")),
+        );
+        handle.shutdown();
     }
 }

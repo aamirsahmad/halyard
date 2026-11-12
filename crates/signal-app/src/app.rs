@@ -49,6 +49,7 @@ impl CommandSink for BackendHandle {
 pub struct RecordingSink {
     commands: Rc<std::cell::RefCell<Vec<BackendCommand>>>,
     notifications: Rc<std::cell::RefCell<Vec<(String, String)>>>,
+    sounds: Rc<std::cell::RefCell<Vec<crate::audio::CallSound>>>,
 }
 
 impl CommandSink for RecordingSink {
@@ -62,21 +63,34 @@ impl RecordingSink {
         std::mem::take(&mut self.commands.borrow_mut())
     }
 
+    /// Call sounds requested so far.
+    pub fn take_sounds(&self) -> Vec<crate::audio::CallSound> {
+        std::mem::take(&mut self.sounds.borrow_mut())
+    }
+
     /// Notifications raised so far, as `(title, body)`.
     pub fn take_notifications(&self) -> Vec<(String, String)> {
         std::mem::take(&mut self.notifications.borrow_mut())
     }
 }
 
-/// Whether to raise OS notifications.
+/// OS notifications and call sounds.
 pub trait Notifier: 'static {
     fn notify(&self, title: &str, body: &str);
+    fn call_sound(&self, _sound: crate::audio::CallSound) {}
 }
 
-/// Desktop notifications through the platform service.
-pub struct DesktopNotifier;
+/// Desktop notifications through the platform service, and call sounds.
+#[derive(Default)]
+pub struct DesktopNotifier {
+    tones: crate::audio::CallTones,
+}
 
 impl Notifier for DesktopNotifier {
+    fn call_sound(&self, sound: crate::audio::CallSound) {
+        self.tones.play(sound);
+    }
+
     fn notify(&self, title: &str, body: &str) {
         let (title, body) = (title.to_string(), body.to_string());
         std::thread::spawn(move || {
@@ -97,6 +111,10 @@ impl Notifier for RecordingSink {
         self.notifications
             .borrow_mut()
             .push((title.to_string(), body.to_string()));
+    }
+
+    fn call_sound(&self, sound: crate::audio::CallSound) {
+        self.sounds.borrow_mut().push(sound);
     }
 }
 
@@ -177,6 +195,10 @@ pub struct SignalApp {
     pub(crate) reaction_picker: Entity<crate::views::emoji_picker::EmojiPicker>,
     pub(crate) reaction_target: Rc<std::cell::Cell<Option<i64>>>,
     pub(crate) focus: FocusHandle,
+    /// Refreshes the call screen while a call is shown.
+    pub(crate) call_ticker: Option<gpui_kit::Task<()>>,
+    /// Clears the screen of an ended call after a moment.
+    pub(crate) call_clear: Option<gpui_kit::Task<()>>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -351,6 +373,8 @@ impl SignalApp {
             reaction_picker,
             reaction_target,
             focus: cx.focus_handle(),
+            call_ticker: None,
+            call_clear: None,
             _subscriptions: subscriptions,
         };
         this.state.window_active = this.window_is_active(window);
@@ -558,6 +582,15 @@ impl SignalApp {
         }
         self.state.window_active = self.window_is_active(window);
         let registered_now = matches!(&event, BackendEvent::Account(AccountState::Registered(_)));
+        let call_event = match &event {
+            BackendEvent::Call(info) => Some(info.clone()),
+            _ => None,
+        };
+        let ringing_before = self
+            .state
+            .call
+            .as_ref()
+            .is_some_and(|c| c.phase == signal_core::CallPhase::IncomingRinging);
         let names = self.names.clone();
         let me = self.me();
         let event = match event {
@@ -573,6 +606,30 @@ impl SignalApp {
                 names.get(u).cloned().unwrap_or_else(|| "Unknown".into())
             }
         });
+        if let Some(info) = call_event {
+            use crate::audio::CallSound;
+            let ringing = info.phase == signal_core::CallPhase::IncomingRinging;
+            if ringing && !ringing_before {
+                self.notifier
+                    .call_sound(CallSound::Ring(self.prefs.ringtone));
+            } else if !ringing && ringing_before {
+                self.notifier.call_sound(CallSound::StopRing);
+            }
+            if info.ended() && !ringing_before {
+                self.notifier.call_sound(CallSound::End);
+            }
+            if info.ended() {
+                if ringing_before {
+                    // a call that only rang here (missed, or answered on the phone)
+                    self.state.call = None;
+                } else {
+                    self.clear_ended_call(window, cx);
+                }
+            } else {
+                self.call_clear = None;
+            }
+            self.tick_call(window, cx);
+        }
         if reload_names {
             self.reload_names();
         }

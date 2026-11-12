@@ -13,11 +13,14 @@ use futures::channel::oneshot;
 use presage::Manager;
 use presage::libsignal_service::configuration::SignalServers;
 use presage::libsignal_service::content::ContentBody;
+use presage::libsignal_service::content::Metadata;
+use presage::libsignal_service::proto::CallMessage;
 use presage::libsignal_service::proto::{
     DataMessage, EditMessage, GroupContextV2, ReceiptMessage, SyncMessage, TypingMessage,
     data_message, receipt_message, sync_message, typing_message,
 };
 use presage::libsignal_service::protocol::{Aci, ServiceId};
+use presage::libsignal_service::protocol::{IdentityKeyStore, ProtocolAddress};
 use presage::libsignal_service::sender::AttachmentSpec;
 use presage::libsignal_service::zkgroup::groups::{GroupMasterKey, GroupSecretParams};
 use presage::manager::Registered;
@@ -30,10 +33,12 @@ use signal_core::{
     Contact, ConversationId, Database, GroupKey, MessageKind, MessageStatus, Millis, Mutation,
     NewMessage, Quote, now_millis,
 };
+use signal_core::{CallOutcome, CallPhase};
 use tokio::sync::mpsc;
 use tokio::task::{JoinHandle, LocalSet, spawn_local};
 use uuid::Uuid;
 
+use crate::calls::{self, CallEngine, CallEvent, StateChange};
 use crate::interpret::{self, Ctx, Output};
 use crate::paths::DataPaths;
 
@@ -157,6 +162,17 @@ enum Internal {
         bytes: Option<Vec<u8>>,
         about: Option<String>,
     },
+    /// TURN relays for a call are known (empty if the request failed).
+    CallRelays {
+        call_id: u64,
+        relays: Vec<calls::Relay>,
+        hide_ip: bool,
+    },
+    /// A call signaling message was sent (or failed).
+    CallSent {
+        call_id: u64,
+        ok: bool,
+    },
 }
 
 struct Worker {
@@ -175,6 +191,10 @@ struct Worker {
     profile_requested: HashSet<Uuid>,
     read_receipts: bool,
     avatar_requested: HashSet<ConversationId>,
+    /// Created on the first call (it starts RingRTC's threads).
+    calls: Option<CallEngine>,
+    call_tx: mpsc::UnboundedSender<CallEvent>,
+    call_rx: Option<mpsc::UnboundedReceiver<CallEvent>>,
 }
 
 /// Derives the public group identifier (as used in typing messages) from a master key.
@@ -218,6 +238,7 @@ impl Worker {
         .await?;
         let db = Database::open(config.paths.app_db(), Some(&config.db_key))?;
         let (internal_tx, internal_rx) = mpsc::unbounded_channel();
+        let (call_tx, call_rx) = mpsc::unbounded_channel();
         Ok(Self {
             config,
             store,
@@ -234,6 +255,9 @@ impl Worker {
             profile_requested: HashSet::new(),
             read_receipts: true,
             avatar_requested: HashSet::new(),
+            calls: None,
+            call_tx,
+            call_rx: Some(call_rx),
         })
     }
 
@@ -272,6 +296,7 @@ impl Worker {
 
     async fn run(mut self, mut rx: mpsc::UnboundedReceiver<BackendCommand>) {
         let mut internal_rx = self.internal_rx.take().expect("internal rx");
+        let mut call_rx = self.call_rx.take().expect("call rx");
         self.startup().await;
         let mut sweep = tokio::time::interval(Duration::from_secs(1));
         sweep.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -288,7 +313,11 @@ impl Worker {
                     Some(cmd) => self.handle_command(cmd).await,
                 },
                 Some(msg) = internal_rx.recv() => self.handle_internal(msg).await,
+                Some(ev) = call_rx.recv() => self.handle_call_event(ev),
             }
+        }
+        if let Some(engine) = &mut self.calls {
+            engine.hang_up();
         }
         if let Some(t) = self.receive_task.take() {
             t.abort();
@@ -586,6 +615,25 @@ impl Worker {
                     self.emit_changes(ch);
                 }
             }
+            Internal::CallRelays {
+                call_id,
+                relays,
+                hide_ip,
+            } => {
+                if let Some(engine) = &mut self.calls
+                    && engine
+                        .current
+                        .as_ref()
+                        .is_some_and(|c| c.call_id == call_id)
+                {
+                    engine.proceed(call_id, &relays, hide_ip);
+                }
+            }
+            Internal::CallSent { call_id, ok } => {
+                if let Some(engine) = &mut self.calls {
+                    engine.message_sent(call_id, ok);
+                }
+            }
             Internal::Profile { uuid, name } => {
                 if let Some(name) = name.filter(|n| !n.trim().is_empty()) {
                     let ch = self.apply(Mutation::UpsertContact(Contact {
@@ -609,6 +657,10 @@ impl Worker {
             }
             Received::Content(content) => {
                 let Some(me) = self.me else { return };
+                if let ContentBody::CallMessage(call) = &content.body {
+                    self.on_call_message(&content.metadata, call.clone()).await;
+                    return;
+                }
                 let groups = self.group_ids.clone();
                 let resolve = move |id: &[u8]| -> Option<GroupKey> {
                     let id: [u8; 32] = id.try_into().ok()?;
@@ -1106,8 +1158,334 @@ impl Worker {
                 background,
                 attachment,
             } => self.post_story(text, background, attachment),
+            BackendCommand::StartCall { contact } => self.start_call(contact),
+            BackendCommand::AcceptCall => {
+                if let Some(engine) = &mut self.calls {
+                    engine.accept();
+                    self.emit_call();
+                }
+            }
+            BackendCommand::HangUp => {
+                if let Some(engine) = &mut self.calls {
+                    engine.hang_up();
+                }
+            }
+            BackendCommand::SetCallMuted(muted) => {
+                if let Some(engine) = &mut self.calls {
+                    engine.set_muted(muted);
+                    self.emit_call();
+                }
+            }
             BackendCommand::Unlink => self.unlink().await,
             BackendCommand::Shutdown => {}
+        }
+    }
+
+    // ------------------------------------------------------------------ calls
+
+    fn call_engine(&mut self) -> Option<&mut CallEngine> {
+        if self.calls.is_none() {
+            match CallEngine::new(self.call_tx.clone()) {
+                Ok(engine) => self.calls = Some(engine),
+                Err(e) => {
+                    self.error("Calls are not available", e);
+                    return None;
+                }
+            }
+        }
+        self.calls.as_mut()
+    }
+
+    fn our_device(&self) -> Option<u32> {
+        self.manager.as_ref().map(|m| u32::from(m.device_id()))
+    }
+
+    fn emit_call(&self) {
+        if let Some(c) = self.calls.as_ref().and_then(|e| e.current.as_ref()) {
+            self.emit(BackendEvent::Call(c.info()));
+        }
+    }
+
+    fn start_call(&mut self, contact: Uuid) {
+        let Some(device) = self.our_device() else {
+            return;
+        };
+        let Some(engine) = self.call_engine() else {
+            return;
+        };
+        if engine.busy() {
+            self.emit(BackendEvent::Error("You are already in a call.".into()));
+            return;
+        }
+        engine.start(contact, device, now_millis());
+        self.emit_call();
+    }
+
+    /// The 32-byte identity keys RingRTC mixes into the call's keys: the
+    /// sender's and ours, without the key-type byte (as Signal's apps do).
+    async fn call_identity_keys(&self, sender: &ProtocolAddress) -> Option<(Vec<u8>, Vec<u8>)> {
+        let store = self.store.aci_protocol_store();
+        let theirs = store.get_identity(sender).await.ok()??;
+        let ours = store.get_identity_key_pair().await.ok()?;
+        Some((
+            theirs.public_key().public_key_bytes().to_vec(),
+            ours.identity_key().public_key().public_key_bytes().to_vec(),
+        ))
+    }
+
+    async fn on_call_message(&mut self, metadata: &Metadata, message: CallMessage) {
+        let (Some(me), Some(our_device)) = (self.me, self.our_device()) else {
+            return;
+        };
+        // calls ring on ACIs only; our own devices never call us
+        let ServiceId::Aci(aci) = metadata.sender else {
+            return;
+        };
+        let peer = Uuid::from(aci);
+        if peer == me {
+            return;
+        }
+        if let Some(dest) = message.destination_device_id
+            && dest != 0
+            && dest != our_device
+        {
+            return;
+        }
+        let now = now_millis();
+        if let Some((call_id, video)) = calls::offer_of(&message) {
+            let permission = self.db.call_permission(&peer);
+            if !permission.is_ok_and(|p| p.allowed) {
+                tracing::info!(%peer, "refusing call from a chat that is not accepted");
+                self.send_call_signal(
+                    peer,
+                    call_id,
+                    calls::need_permission(call_id, our_device),
+                    false,
+                );
+                self.record_call(peer, false, video, CallOutcome::Missed, 0, now);
+                return;
+            }
+        }
+        let sender = ProtocolAddress::new(aci.service_id_string(), metadata.sender_device);
+        let Some((sender_key, our_key)) = self.call_identity_keys(&sender).await else {
+            tracing::warn!(%peer, "no identity key for caller; ignoring call message");
+            return;
+        };
+        let sender_device = u32::from(metadata.sender_device);
+        let age_ms = (now - metadata.server_timestamp.timestamp_millis()).max(0) as u64;
+        let Some(engine) = self.call_engine() else {
+            return;
+        };
+        engine.receive(
+            peer,
+            sender_device,
+            our_device,
+            (&sender_key, &our_key),
+            Duration::from_millis(age_ms),
+            &message,
+        );
+    }
+
+    /// Sends call signaling. With `report`, RingRTC hears when it was sent.
+    fn send_call_signal(&self, peer: Uuid, call_id: u64, message: CallMessage, report: bool) {
+        let Some(mut manager) = self.manager.clone() else {
+            return;
+        };
+        let tx = self.internal_tx.clone();
+        let ts = now_millis() as u64;
+        spawn_local(async move {
+            let result = manager
+                .send_message(
+                    ServiceId::Aci(Aci::from(peer)),
+                    ContentBody::CallMessage(message),
+                    ts,
+                )
+                .await;
+            if let Err(e) = &result {
+                tracing::warn!(%e, "call message not sent");
+            }
+            if report {
+                let _ = tx.send(Internal::CallSent {
+                    call_id,
+                    ok: result.is_ok(),
+                });
+            }
+        });
+    }
+
+    /// Gets the TURN relays, then lets RingRTC connect the call.
+    fn fetch_call_relays(&self, call_id: u64, peer: Uuid) {
+        let hide_ip = self
+            .db
+            .call_permission(&peer)
+            .map(|p| p.hide_ip)
+            .unwrap_or(true);
+        let account = self
+            .manager
+            .as_ref()
+            .map(|m| crate::groups::Account::from_registration(m.registration_data()));
+        let tx = self.internal_tx.clone();
+        spawn_local(async move {
+            let relays = match account {
+                Some(Ok(account)) => calls::fetch_relays(&account.push_service()).await,
+                Some(Err(e)) => Err(e),
+                None => Err("not linked".into()),
+            }
+            .unwrap_or_else(|e| {
+                tracing::warn!(%e, "no TURN relays for the call");
+                Vec::new()
+            });
+            let _ = tx.send(Internal::CallRelays {
+                call_id,
+                relays,
+                hide_ip,
+            });
+        });
+    }
+
+    fn record_call(
+        &mut self,
+        peer: Uuid,
+        outgoing: bool,
+        video: bool,
+        outcome: CallOutcome,
+        duration_secs: u32,
+        at: Millis,
+    ) {
+        let Some(me) = self.me else { return };
+        let author = if outgoing { me } else { peer };
+        let mut entry = NewMessage::text(ConversationId::Direct(peer), author, at, outgoing, "");
+        entry.read = outgoing || outcome != CallOutcome::Missed;
+        entry.kind = MessageKind::Call {
+            outcome,
+            video,
+            duration_secs,
+        };
+        let changes = self.apply(Mutation::InsertMessage(entry));
+        self.emit_changes(changes);
+    }
+
+    fn handle_call_event(&mut self, event: CallEvent) {
+        match event {
+            CallEvent::Signal {
+                peer,
+                call_id,
+                message,
+            } => self.send_call_signal(peer, call_id, *message, true),
+            CallEvent::RemoteAudio { peer, enabled } => {
+                if let Some(c) = self.calls.as_mut().and_then(|e| e.current.as_mut())
+                    && c.peer == peer
+                {
+                    c.remote_muted = !enabled;
+                    self.emit_call();
+                }
+            }
+            CallEvent::State {
+                peer,
+                call_id,
+                state,
+            } => self.on_call_state(peer, call_id, state),
+        }
+    }
+
+    fn on_call_state(&mut self, peer: Uuid, call_id: u64, state: StateChange) {
+        let now = now_millis();
+        let Some(engine) = self.calls.as_mut() else {
+            return;
+        };
+        let is_current = engine
+            .current
+            .as_ref()
+            .is_some_and(|c| c.call_id == call_id);
+        match state {
+            StateChange::Incoming { video } => {
+                if engine.current.is_some() && !is_current {
+                    return; // RingRTC answers busy itself
+                }
+                engine.current = Some(calls::Current {
+                    call_id,
+                    peer,
+                    outgoing: false,
+                    video_offered: video,
+                    phase: CallPhase::IncomingRinging,
+                    accepted: false,
+                    muted: false,
+                    remote_muted: false,
+                    started_at: now,
+                    connected_at: None,
+                });
+                self.emit_call();
+                self.fetch_call_relays(call_id, peer);
+            }
+            StateChange::Outgoing => {
+                if is_current {
+                    self.fetch_call_relays(call_id, peer);
+                }
+            }
+            StateChange::Ringing => {
+                if let Some(c) = engine.current.as_mut().filter(|c| c.call_id == call_id)
+                    && c.outgoing
+                {
+                    c.phase = CallPhase::OutgoingRinging;
+                    self.emit_call();
+                }
+            }
+            StateChange::Connected => {
+                if let Some(c) = engine.current.as_mut().filter(|c| c.call_id == call_id) {
+                    let since = *c.connected_at.get_or_insert(now);
+                    c.phase = CallPhase::Connected { since };
+                    engine.update_audio();
+                    self.emit_call();
+                }
+            }
+            StateChange::Connecting => {
+                if let Some(c) = engine.current.as_mut().filter(|c| c.call_id == call_id)
+                    && c.accepted
+                {
+                    c.phase = CallPhase::Connecting;
+                    engine.update_audio();
+                    self.emit_call();
+                }
+            }
+            StateChange::Ended(reason) => {
+                if !is_current {
+                    // not the call we show (a refused offer arrives as Rejected)
+                    return;
+                }
+                let Some(mut c) = engine.current.take() else {
+                    return;
+                };
+                engine.update_audio();
+                let connected = c.connected_at.is_some();
+                let outcome = calls::outcome(c.outgoing, connected, c.accepted, reason);
+                let duration = c
+                    .connected_at
+                    .map(|t| ((now - t).max(0) / 1000) as u32)
+                    .unwrap_or(0);
+                c.phase = CallPhase::Ended {
+                    reason: calls::end_text(reason, connected).into(),
+                };
+                self.emit(BackendEvent::Call(c.info()));
+                self.record_call(
+                    c.peer,
+                    c.outgoing,
+                    c.video_offered,
+                    outcome,
+                    duration,
+                    c.started_at,
+                );
+            }
+            StateChange::Rejected => {
+                // an offer RingRTC refused (we were busy, or it was too old)
+                if !is_current {
+                    self.record_call(peer, false, false, CallOutcome::Missed, 0, now);
+                }
+            }
+            StateChange::Concluded => {
+                if is_current {
+                    engine.current = None;
+                }
+            }
         }
     }
 

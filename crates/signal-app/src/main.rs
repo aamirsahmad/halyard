@@ -176,8 +176,13 @@ fn main() -> anyhow::Result<()> {
         let opened = gpui_kit::open_window(options, cx, move |window, cx| {
             apply_appearance(Appearance::System, Some(window), cx);
             cx.new(|cx| {
-                let mut app =
-                    SignalApp::new(db, Rc::new(backend), Rc::new(DesktopNotifier), window, cx);
+                let mut app = SignalApp::new(
+                    db,
+                    Rc::new(backend),
+                    Rc::new(DesktopNotifier::default()),
+                    window,
+                    cx,
+                );
                 app.use_settings_file(settings_file, window, cx);
                 app.set_attachment_access(attachment_access);
                 app.listen(rx, window, cx);

@@ -16,6 +16,8 @@ The Signal protocol comes from [libsignal](https://github.com/signalapp/libsigna
 ## Features
 
 - 1:1 chats, group chats and Note to Self.
+- 1:1 voice calls, with Signal's own call library (RingRTC). Call history in the chat.
+  A choice of ringtones.
 - Replies, reactions, edits, deletion, forwarding and message information.
 - Formatting, @mentions, link previews, stickers, view-once media and attachments.
 - Voice messages. Halyard plays them and records them as MP3.
@@ -25,7 +27,7 @@ The Signal protocol comes from [libsignal](https://github.com/signalapp/libsigna
 - Light and dark themes, zoom and keyboard shortcuts.
 - Encrypted local storage.
 
-Halyard does not support voice and video calls. You cannot register a new account with Halyard.
+Halyard does not support video calls or group calls. You cannot register a new account with Halyard.
 Halyard connects to your phone as a linked device, like Signal Desktop.
 [PARITY.md](PARITY.md) compares each feature with Signal Desktop.
 
@@ -66,13 +68,16 @@ Linux needs a Vulkan driver. Most desktops have one. On Debian and Ubuntu, the p
 
 ## Build from source
 
-You need `protoc` and the Rust version in `rust-toolchain.toml`. Rustup installs that version
-automatically.
+You need `protoc`, `cmake` and the Rust version in `rust-toolchain.toml`. Rustup installs that
+version automatically.
 
-- macOS: install the Xcode command line tools. Then run `brew install protobuf`.
+- macOS: install the Xcode command line tools. Then run `brew install protobuf cmake`.
 - Debian or Ubuntu: run `script/install-linux-deps.sh`.
 
+Voice calls need Signal's prebuilt WebRTC library. Download it once before you build:
+
 ```sh
+script/fetch-webrtc.sh                        # get WebRTC for calls (checks its SHA-256)
 cargo run --release -p signal-app            # start Halyard
 cargo run --release -p signal-app -- --demo  # start with sample data, no account
 cargo test --workspace                        # run the tests

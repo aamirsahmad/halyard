@@ -11,25 +11,27 @@ issues. Use the procedure in [SECURITY.md](SECURITY.md).
 - For features and large changes, open an issue first. Then we can agree on the design.
 - Halyard copies the behaviour of [Signal Desktop](https://github.com/signalapp/Signal-Desktop).
   [PARITY.md](PARITY.md) shows the status of each feature.
-- Voice and video calls are out of scope at this time.
+- Video calls and group calls are out of scope at this time.
 
 ## Set up
 
-Install `protoc`. On macOS, run `brew install protobuf`. On Debian or Ubuntu, run
+Install `protoc` and `cmake`. On macOS, run `brew install protobuf cmake`. On Debian or Ubuntu, run
 `script/install-linux-deps.sh`. Rustup installs the correct Rust version automatically.
 
 ```sh
+script/fetch-webrtc.sh              # once: Signal's prebuilt WebRTC, for voice calls
 cargo run -p signal-app -- --demo   # start with sample data, no Signal account
 ```
 
-Use the demo mode for UI work. Use a test account or `--staging` for network work.
+Use the demo mode for UI work. In the demo, calls connect by themselves. To get an incoming call,
+send "call me" to a contact. Use a test account or `--staging` for network work.
 
 ## Code structure
 
 | Crate | Contents |
 |---|---|
 | `signal-core` | Data model, SQLCipher database and migrations, UI state. No network and no UI. |
-| `signal-backend` | presage worker thread, protocol interpretation (`interpret.rs`), demo backend. |
+| `signal-backend` | presage worker thread, protocol interpretation (`interpret.rs`), voice calls (`calls.rs`, RingRTC), demo backend. |
 | `signal-app` | GPUI Kit UI and the `halyard` binary. |
 
 - The backend runs on its own thread, because presage's `Manager` is `!Send`. The UI and the
@@ -44,7 +46,9 @@ Use the demo mode for UI work. Use a test account or `--staging` for network wor
 - Add or update tests:
   - protocol handling in `signal-backend/src/interpret.rs`;
   - database changes in `signal-core/src/db/tests.rs`;
-  - UI behaviour in `signal-app/tests/`.
+  - UI behaviour in `signal-app/tests/`;
+  - call signaling in `signal-backend/src/calls.rs`. For call changes, also run the real
+    RingRTC call test: `cargo test -p signal-backend --test call_loopback -- --ignored`.
 - Add a new migration for each schema change. Do not change an old migration.
 - For visual changes, set `SCREENSHOT_DIR`, run the rendering test and examine the screenshots.
 - Add dependencies only when necessary. Each dependency must be compatible with AGPL-3.0.

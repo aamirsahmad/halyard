@@ -1,6 +1,7 @@
 //! Rendering of the root view.
 
 pub mod avatar;
+pub mod call;
 mod conversation;
 pub mod details;
 pub mod emoji_picker;
@@ -40,6 +41,7 @@ impl Render for SignalApp {
         let p = Palette::current(cx);
         let root = div()
             .id("signal-root")
+            .relative()
             .key_context("SignalApp")
             .track_focus(&self.focus)
             .size_full()
@@ -84,7 +86,8 @@ impl Render for SignalApp {
                 }))
                 .children((!self.sidebar_compact(window, cx)).then(|| self.render_nav_tabs(&p, cx)))
                 .child(self.render_sidebar(&p, window, cx))
-                .child(self.render_conversation_pane(&p, window, cx)),
+                .child(self.render_conversation_pane(&p, window, cx))
+                .children(self.render_call(cx)),
             _ => root.child(self.render_link_screen(&p, window, cx)),
         }
     }

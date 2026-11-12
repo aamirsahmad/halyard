@@ -6,7 +6,7 @@ use gpui_kit::component::input::Textarea;
 use gpui_kit::component::menu::DropdownMenu as _;
 use gpui_kit::component::message_scroller::MessageScroller;
 use gpui_kit::component::popover::Popover;
-use gpui_kit::component::{Icon, IconName, Sizable as _};
+use gpui_kit::component::{Disableable as _, Icon, IconName, Sizable as _};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AnyElement, Context, ElementId, FontWeight, InteractiveElement as _, IntoElement,
@@ -157,6 +157,17 @@ impl SignalApp {
                     )
                     .test_support(),
             )
+            .children(self.can_call(&id).then(|| {
+                let contact = id.direct_uuid().unwrap_or_default();
+                let busy = self.state.call.is_some();
+                Button::new("conversation-call")
+                    .ghost()
+                    .small()
+                    .icon(Icon::empty().path(crate::assets::signal_icons::PHONE))
+                    .tooltip("Start voice call")
+                    .disabled(busy)
+                    .on_click(cx.listener(move |this, _, _, cx| this.start_call(contact, cx)))
+            }))
             .child(
                 Button::new("conversation-search")
                     .ghost()

@@ -3,6 +3,7 @@
 //! The backend runs on a dedicated thread and talks to the UI exclusively
 //! through [`signal_core::BackendCommand`]s and [`signal_core::BackendEvent`]s.
 
+pub mod calls;
 pub mod demo;
 pub mod groups;
 pub mod interpret;

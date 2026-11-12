@@ -143,6 +143,52 @@ fn render_message(
             .test_support()
             .into_any_element();
     }
+    if let MessageKind::Call { outcome, video, .. } = &m.kind {
+        let missed = !m.outgoing && *outcome == signal_core::CallOutcome::Missed;
+        let contact = m.conversation.direct_uuid();
+        let label = if m.outgoing {
+            "Call again"
+        } else {
+            "Call back"
+        };
+        return div()
+            .id(ElementId::Name(format!("row-{}", m.id).into()))
+            .flex()
+            .flex_col()
+            .items_center()
+            .gap_1()
+            .py_2()
+            .text_size(rem_px(12.))
+            .text_color(p.text_secondary)
+            .child(
+                div()
+                    .id(ElementId::Name(format!("call-notice-{}", m.id).into()))
+                    .flex()
+                    .items_center()
+                    .gap_1()
+                    .text_color(if missed { p.danger } else { p.text_secondary })
+                    .child(
+                        gpui_kit::svg()
+                            .path(crate::assets::signal_icons::PHONE)
+                            .size(rem_px(14.))
+                            .text_color(if missed { p.danger } else { p.text_secondary }),
+                    )
+                    .child(signal_core::call_notice(m.outgoing, *outcome, *video))
+                    .test_support(),
+            )
+            .child(message_time(m.sent_at, now_millis()))
+            .children(contact.map(|contact| {
+                Button::new(ElementId::Name(format!("call-again-{}", m.id).into()))
+                    .outline()
+                    .xsmall()
+                    .label(label)
+                    .on_click(move |_, _, cx| {
+                        let _ = app.update(cx, |this, cx| this.start_call(contact, cx));
+                    })
+            }))
+            .test_support()
+            .into_any_element();
+    }
     if let MessageKind::TimerChanged { secs } = &m.kind {
         let who = if m.outgoing {
             None

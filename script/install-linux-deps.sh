@@ -7,4 +7,4 @@ $SUDO apt-get install -y --no-install-recommends \
   build-essential clang cmake pkg-config protobuf-compiler git curl ca-certificates \
   libfontconfig-dev libfreetype-dev libwayland-dev libxkbcommon-dev libxkbcommon-x11-dev \
   libx11-xcb-dev libxcb1-dev libvulkan1 libssl-dev libzstd-dev libdbus-1-dev \
-  libasound2-dev mesa-vulkan-drivers
+  libasound2-dev libpulse-dev mesa-vulkan-drivers

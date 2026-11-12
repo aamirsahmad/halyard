@@ -12,7 +12,7 @@ use gpui_kit::{
 use signal_core::AccountState;
 
 use crate::app::SignalApp;
-use crate::settings::{NotificationContent, Preferences};
+use crate::settings::{NotificationContent, Preferences, Ringtone};
 use crate::theme::{Appearance, Palette};
 use crate::views::avatar::Avatar;
 use crate::views::rem_px;
@@ -96,11 +96,16 @@ impl SignalApp {
                 Appearance::Light => 1,
                 Appearance::Dark => 2,
             };
+            let a_ring = app.clone();
+            let ring_ix = Ringtone::ALL
+                .iter()
+                .position(|r| *r == prefs.ringtone)
+                .unwrap_or(0);
             let content_ix = NotificationContent::ALL
                 .iter()
                 .position(|c| *c == prefs.notification_content)
                 .unwrap_or(0);
-            dialog.title("Preferences").w(gpui_kit::px(480.)).child(
+            dialog.title("Preferences").w(gpui_kit::px(680.)).child(
                 div()
                     .id("preferences")
                     .flex()
@@ -166,6 +171,23 @@ impl SignalApp {
                                 let _ = a_content.update(cx, |this, cx| {
                                     this.update_prefs(|p| p.notification_content = c, window, cx)
                                 });
+                            }),
+                    )
+                    .child(section("Calls", &p))
+                    .child(
+                        div()
+                            .text_size(rem_px(13.))
+                            .text_color(p.text_secondary)
+                            .child("Ringtone"),
+                    )
+                    .child(
+                        RadioGroup::horizontal("pref-ringtone")
+                            .children(Ringtone::ALL.map(|r| r.label()))
+                            .selected_index(Some(ring_ix))
+                            .on_change(move |ix: &usize, window, cx| {
+                                let r = Ringtone::ALL[*ix];
+                                let _ = a_ring
+                                    .update(cx, |this, cx| this.set_ringtone(r, window, cx));
                             }),
                     )
                     .child(section("Chats", &p))

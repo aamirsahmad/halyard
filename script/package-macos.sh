@@ -17,7 +17,10 @@ TARGETS=(aarch64-apple-darwin x86_64-apple-darwin)
 
 for t in "${TARGETS[@]}"; do
   rustup target add "$t" >/dev/null
-  cargo build --release --locked -p signal-app --target "$t"
+  case "$t" in aarch64-*) platform=mac-arm64 ;; x86_64-*) platform=mac-x64 ;; esac
+  # prebuilt WebRTC (voice calls) for this architecture
+  OUTPUT_DIR="$(script/fetch-webrtc.sh "$platform")" \
+    cargo build --release --locked -p signal-app --target "$t"
 done
 
 DIST=dist

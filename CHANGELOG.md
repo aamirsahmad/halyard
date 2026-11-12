@@ -8,6 +8,8 @@ This file lists the changes in each release. It uses the
 
 ### Added
 
+- 1:1 voice calls (RingRTC), with call history, ringtone and desktop notification.
+- A choice of ringtones in Preferences (Signal, Classic, Chime, Marimba, Pulse, Sci-fi piano or Silent).
 - Homebrew cask: `brew install --cask aamirsahmad/halyard/halyard`.
 
 ## [0.1.0]

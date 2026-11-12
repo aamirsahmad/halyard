@@ -27,6 +27,7 @@ if ! protoc --version 2>/dev/null | grep -qE 'libprotoc (2[3-9]|[3-9][0-9])'; th
   export PROTOC="$PROTOC_DIR/bin/protoc"
 fi
 
+script/fetch-webrtc.sh >/dev/null # prebuilt WebRTC for voice calls
 cargo build --release --locked -p signal-app
 BIN=${CARGO_TARGET_DIR:-target}/release/halyard
 VERSION=$(cargo metadata --no-deps --format-version 1 |
@@ -65,8 +66,8 @@ Version: $VERSION
 Architecture: $DEBARCH
 Maintainer: Halyard developers
 Installed-Size: $SIZE
-Depends: libc6 (>= 2.35), libasound2t64 | libasound2 (>= 1.2.6), libxkbcommon0, libxkbcommon-x11-0, libxcb1, libvulkan1, libwayland-client0
-Recommends: mesa-vulkan-drivers
+Depends: libc6 (>= 2.35), libstdc++6 (>= 6), libasound2t64 | libasound2 (>= 1.2.6), libxkbcommon0, libxkbcommon-x11-0, libxcb1, libvulkan1, libwayland-client0
+Recommends: mesa-vulkan-drivers, libpulse0
 Section: net
 Priority: optional
 Homepage: https://github.com/aamirsahmad/halyard

@@ -996,3 +996,275 @@ fn nav_tabs_switch_between_chats_stories_and_settings(cx: &mut TestAppContext) {
         assert!(w.try_find("preferences").is_some(), "settings open")
     });
 }
+
+// ------------------------------------------------------------------ calls
+
+/// Status line of the call screen for the app's current call.
+fn status(cx: &mut TestAppContext, h: &H) -> String {
+    cx.update(|cx| {
+        let call = h.app.read(cx).state().call.clone().expect("a call");
+        signal_app::views::call::call_status(&call, now_millis())
+    })
+}
+
+fn call(phase: signal_core::CallPhase, outgoing: bool) -> signal_core::CallInfo {
+    signal_core::CallInfo {
+        contact: DEMO_ALICE,
+        outgoing,
+        video_offered: false,
+        phase,
+        muted: false,
+        remote_muted: false,
+    }
+}
+
+#[gpui_kit::test]
+fn call_button_only_in_one_to_one_chats(cx: &mut TestAppContext) {
+    let h = setup(cx);
+    with_app(cx, &h, |a, w, cx| a.open_conversation(alice(), w, cx));
+    h.sink.take();
+    with_window(cx, &h, |w, cx| w.click("conversation-call", cx));
+    assert_eq!(
+        h.sink.take(),
+        vec![BackendCommand::StartCall {
+            contact: DEMO_ALICE
+        }]
+    );
+    let group = ConversationId::Group(DEMO_GROUP);
+    with_app(cx, &h, |a, w, cx| a.open_conversation(group, w, cx));
+    with_window(cx, &h, |w, _| {
+        assert!(w.try_find("conversation-call").is_none(), "no group calls")
+    });
+    let note = ConversationId::Direct(demo_account().aci);
+    with_app(cx, &h, |a, w, cx| a.open_conversation(note, w, cx));
+    with_window(cx, &h, |w, _| {
+        assert!(
+            w.try_find("conversation-call").is_none(),
+            "not in Note to Self"
+        )
+    });
+}
+
+#[gpui_kit::test]
+fn outgoing_call_screen_mute_and_hang_up(cx: &mut TestAppContext) {
+    use signal_core::CallPhase;
+    let h = setup(cx);
+    emit(cx, &h, BackendEvent::Call(call(CallPhase::Calling, true)));
+    with_window(cx, &h, |w, _| {
+        assert!(w.try_find("call-name").is_some());
+        assert!(w.try_find("call-status").is_some());
+        assert!(w.try_find("incoming-call").is_none());
+    });
+    assert_eq!(status(cx, &h), "Calling…");
+    emit(
+        cx,
+        &h,
+        BackendEvent::Call(call(CallPhase::OutgoingRinging, true)),
+    );
+    assert_eq!(status(cx, &h), "Ringing…");
+    let since = now_millis() - 65_000;
+    emit(
+        cx,
+        &h,
+        BackendEvent::Call(call(CallPhase::Connected { since }, true)),
+    );
+    assert!(status(cx, &h).starts_with("01:0"));
+
+    h.sink.take();
+    with_window(cx, &h, |w, cx| w.click("call-mute", cx));
+    assert_eq!(h.sink.take(), vec![BackendCommand::SetCallMuted(true)]);
+    with_window(cx, &h, |w, cx| w.click("call-hangup", cx));
+    assert_eq!(h.sink.take(), vec![BackendCommand::HangUp]);
+
+    // the ended screen shows the reason, then goes away
+    emit(
+        cx,
+        &h,
+        BackendEvent::Call(call(
+            CallPhase::Ended {
+                reason: "Call ended".into(),
+            },
+            true,
+        )),
+    );
+    with_window(cx, &h, |w, _| {
+        assert!(w.try_find("call-ended").is_some());
+        assert!(w.try_find("call-hangup").is_none());
+    });
+    cx.executor()
+        .advance_clock(std::time::Duration::from_secs(2));
+    cx.run_until_parked();
+    with_window(cx, &h, |w, _| assert!(w.try_find("call-screen").is_none()));
+}
+
+#[gpui_kit::test]
+fn incoming_call_bar_accept_decline_and_notification(cx: &mut TestAppContext) {
+    use signal_app::audio::CallSound;
+    use signal_app::settings::Ringtone;
+    use signal_core::CallPhase;
+    let h = setup(cx);
+    h.app
+        .update(cx, |app, _| app.set_focus_override(Some(false)));
+    emit(
+        cx,
+        &h,
+        BackendEvent::Call(call(CallPhase::IncomingRinging, false)),
+    );
+    assert_eq!(
+        h.sink.take_sounds(),
+        vec![CallSound::Ring(Ringtone::Signal)]
+    );
+    assert_eq!(
+        h.sink.take_notifications(),
+        vec![(
+            "Alice Johnson".to_string(),
+            "Incoming voice call".to_string()
+        )]
+    );
+    with_window(cx, &h, |w, _| {
+        assert!(w.try_find("incoming-call-name").is_some());
+        assert!(w.try_find("call-screen").is_none());
+    });
+    h.sink.take();
+    with_window(cx, &h, |w, cx| w.click("call-accept", cx));
+    assert_eq!(h.sink.take(), vec![BackendCommand::AcceptCall]);
+    emit(
+        cx,
+        &h,
+        BackendEvent::Call(call(CallPhase::Connecting, false)),
+    );
+    assert_eq!(h.sink.take_sounds(), vec![CallSound::StopRing]);
+    with_window(cx, &h, |w, _| {
+        assert!(w.try_find("incoming-call").is_none());
+        assert!(w.try_find("call-screen").is_some());
+    });
+    assert_eq!(status(cx, &h), "Connecting…");
+
+    // a second call that is declined, then ends: the bar goes away at once
+    emit(
+        cx,
+        &h,
+        BackendEvent::Call(call(
+            CallPhase::Ended {
+                reason: "Call ended".into(),
+            },
+            false,
+        )),
+    );
+    assert_eq!(h.sink.take_sounds(), vec![CallSound::End]);
+    cx.executor()
+        .advance_clock(std::time::Duration::from_secs(2));
+    cx.run_until_parked();
+    emit(
+        cx,
+        &h,
+        BackendEvent::Call(call(CallPhase::IncomingRinging, false)),
+    );
+    with_window(cx, &h, |w, cx| w.click("call-decline", cx));
+    assert_eq!(h.sink.take(), vec![BackendCommand::HangUp]);
+    emit(
+        cx,
+        &h,
+        BackendEvent::Call(call(
+            CallPhase::Ended {
+                reason: "Call ended".into(),
+            },
+            false,
+        )),
+    );
+    // the ringtone stops; no hang-up tone for a call that only rang
+    assert_eq!(
+        h.sink.take_sounds(),
+        vec![CallSound::Ring(Ringtone::Signal), CallSound::StopRing]
+    );
+    with_window(cx, &h, |w, _| {
+        assert!(w.try_find("incoming-call").is_none());
+        assert!(w.try_find("call-screen").is_none());
+    });
+}
+
+#[gpui_kit::test]
+fn call_history_notices_and_call_back(cx: &mut TestAppContext) {
+    use signal_core::{CallOutcome, MessageKind};
+    let now = now_millis();
+    let entry = |outgoing: bool, outcome: CallOutcome, at: i64| {
+        let author = if outgoing {
+            demo_account().aci
+        } else {
+            DEMO_ALICE
+        };
+        let mut m = NewMessage::text(alice(), author, at, outgoing, "");
+        m.read = true;
+        m.kind = MessageKind::Call {
+            outcome,
+            video: false,
+            duration_secs: 0,
+        };
+        Mutation::InsertMessage(m)
+    };
+    let h = setup_with(
+        cx,
+        vec![
+            entry(false, CallOutcome::Missed, now - 3_000),
+            entry(true, CallOutcome::Answered, now - 2_000),
+        ],
+    );
+    let preview = conv(cx, &h, alice()).unwrap().last_preview;
+    assert_eq!(preview, "Outgoing voice call");
+    with_app(cx, &h, |a, w, cx| a.open_conversation(alice(), w, cx));
+    let ids: Vec<i64> = cx.update(|cx| {
+        h.app
+            .read(cx)
+            .timeline()
+            .messages
+            .iter()
+            .filter(|m| matches!(m.kind, MessageKind::Call { .. }))
+            .map(|m| m.id)
+            .collect()
+    });
+    assert_eq!(ids.len(), 2);
+    with_window(cx, &h, |w, _| {
+        for id in &ids {
+            assert!(w.try_find(eid(format!("call-notice-{id}"))).is_some());
+        }
+    });
+    h.sink.take();
+    with_window(cx, &h, |w, cx| {
+        w.click(eid(format!("call-again-{}", ids[0])), cx)
+    });
+    assert_eq!(
+        h.sink.take(),
+        vec![BackendCommand::StartCall {
+            contact: DEMO_ALICE
+        }]
+    );
+}
+
+#[gpui_kit::test]
+fn chosen_ringtone_previews_and_rings(cx: &mut TestAppContext) {
+    use signal_app::audio::CallSound;
+    use signal_app::settings::Ringtone;
+    use signal_core::CallPhase;
+    let h = setup(cx);
+    with_app(cx, &h, |a, w, cx| a.open_preferences(w, cx));
+    with_window(cx, &h, |w, _| assert!(w.try_find("preferences").is_some()));
+    with_app(cx, &h, |a, w, cx| a.set_ringtone(Ringtone::Marimba, w, cx));
+    assert_eq!(
+        h.sink.take_sounds(),
+        vec![CallSound::Preview(Ringtone::Marimba)]
+    );
+    cx.update(|cx| assert_eq!(h.app.read(cx).prefs().ringtone, Ringtone::Marimba));
+
+    emit(
+        cx,
+        &h,
+        BackendEvent::Call(call(CallPhase::IncomingRinging, false)),
+    );
+    assert_eq!(
+        h.sink.take_sounds(),
+        vec![CallSound::Ring(Ringtone::Marimba)]
+    );
+    // no preview over a ringing call
+    with_app(cx, &h, |a, w, cx| a.set_ringtone(Ringtone::Chime, w, cx));
+    assert!(h.sink.take_sounds().is_empty());
+}

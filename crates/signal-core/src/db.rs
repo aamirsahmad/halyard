@@ -231,6 +231,27 @@ fn conversation_from_row(row: &Row) -> rusqlite::Result<Conversation> {
     })
 }
 
+/// Whether a contact is one of your Signal connections (in the phone's
+/// address book or accepted through the storage service).
+fn known_contact_in(conn: &Connection, uuid: &Uuid) -> Result<bool> {
+    Ok(conn
+        .query_row(
+            "SELECT 1 FROM contacts WHERE uuid = ?1 AND (whitelisted = 1 OR \
+             (whitelisted IS NULL AND (synced = 1 OR name IS NOT NULL)))",
+            [uuid.to_string()],
+            |_| Ok(()),
+        )
+        .optional()?
+        .is_some())
+}
+
+/// See [`Database::call_permission`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CallPermission {
+    pub allowed: bool,
+    pub hide_ip: bool,
+}
+
 fn blocked_in(conn: &Connection) -> Result<(Vec<Uuid>, Vec<GroupKey>)> {
     let mut stmt = conn.prepare("SELECT id FROM conversations WHERE blocked = 1 ORDER BY id")?;
     let ids: Vec<String> = stmt
@@ -340,6 +361,23 @@ impl Database {
         ))?;
         let rows = stmt.query_map([], conversation_from_row)?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// May this contact ring you, and should the call hide your IP address?
+    /// Like Signal Desktop: offers from blocked chats and unanswered message
+    /// requests are refused, and calls with people who are not your Signal
+    /// connections go through Signal's relay.
+    pub fn call_permission(&self, contact: &Uuid) -> Result<CallPermission> {
+        let known = known_contact_in(&self.conn, contact)?;
+        let conv = self.conversation(&ConversationId::Direct(*contact))?;
+        let allowed = match &conv {
+            Some(c) => !c.blocked && (c.accepted || known),
+            None => known,
+        };
+        Ok(CallPermission {
+            allowed,
+            hide_ip: !known,
+        })
     }
 
     /// Blocked contacts and groups, for the blocked-list sync.
@@ -1398,16 +1436,7 @@ impl Writer<'_> {
 
     /// A contact synced from the phone's address book (has a name).
     fn is_known_contact(&self, uuid: &Uuid) -> Result<bool> {
-        Ok(self
-            .conn
-            .query_row(
-                "SELECT 1 FROM contacts WHERE uuid = ?1 AND (whitelisted = 1 OR \
-                 (whitelisted IS NULL AND (synced = 1 OR name IS NOT NULL)))",
-                [uuid.to_string()],
-                |_| Ok(()),
-            )
-            .optional()?
-            .is_some())
+        known_contact_in(self.conn, uuid)
     }
 
     /// Starts the disappearing timer of read incoming messages that have one.

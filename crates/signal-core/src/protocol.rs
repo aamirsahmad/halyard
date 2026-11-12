@@ -112,9 +112,54 @@ pub enum BackendCommand {
     LeaveGroup {
         group: GroupKey,
     },
+    /// Start a 1:1 voice call.
+    StartCall {
+        contact: Uuid,
+    },
+    /// Answer the ringing incoming call.
+    AcceptCall,
+    /// Decline the ringing call, cancel the outgoing call, or end the active call.
+    HangUp,
+    /// Mute or unmute the microphone in the current call.
+    SetCallMuted(bool),
     /// Unlink this device and wipe local data.
     Unlink,
     Shutdown,
+}
+
+/// Where a 1:1 call is. Sent to the UI as [`BackendEvent::Call`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CallPhase {
+    /// An incoming call is ringing here.
+    IncomingRinging,
+    /// Outgoing: the offer is on its way.
+    Calling,
+    /// Outgoing: the other side's devices ring.
+    OutgoingRinging,
+    /// Accepted; media is connecting (or reconnecting).
+    Connecting,
+    /// Audio flows. `since` is when the call connected.
+    Connected { since: Millis },
+    /// The call is over. `reason` is short text for the call screen.
+    Ended { reason: String },
+}
+
+/// The state of the current call, or of one that just ended.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CallInfo {
+    pub contact: Uuid,
+    pub outgoing: bool,
+    /// The caller offered video. Halyard answers with audio only.
+    pub video_offered: bool,
+    pub phase: CallPhase,
+    pub muted: bool,
+    pub remote_muted: bool,
+}
+
+impl CallInfo {
+    pub fn ended(&self) -> bool {
+        matches!(self.phase, CallPhase::Ended { .. })
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -169,6 +214,8 @@ pub enum BackendEvent {
         contact: Uuid,
         number: Option<String>,
     },
+    /// The current call changed.
+    Call(CallInfo),
     /// A user-facing, non-fatal error.
     Error(String),
 }

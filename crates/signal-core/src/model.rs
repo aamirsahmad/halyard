@@ -149,6 +149,43 @@ pub enum MessageKind {
         /// The member is this account ("You left", "removed you").
         member_is_me: bool,
     },
+    /// A 1:1 call. The message's `outgoing` flag is the direction.
+    Call {
+        outcome: CallOutcome,
+        video: bool,
+        /// Seconds with audio connected; 0 if the call never connected.
+        #[serde(default)]
+        duration_secs: u32,
+    },
+}
+
+/// How a call ended, for call history.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CallOutcome {
+    /// Someone answered.
+    Answered,
+    /// Incoming, and nobody answered here or on another device.
+    Missed,
+    /// Declined (incoming, by you; outgoing, by them).
+    Declined,
+    /// Outgoing, and nobody answered.
+    Unanswered,
+}
+
+/// Call history text, as Signal Desktop shows it ("Missed voice call").
+pub fn call_notice(outgoing: bool, outcome: CallOutcome, video: bool) -> String {
+    let kind = if video { "video call" } else { "voice call" };
+    match (outgoing, outcome) {
+        (false, CallOutcome::Answered) => format!("Incoming {kind}"),
+        (true, CallOutcome::Answered) => format!("Outgoing {kind}"),
+        (false, CallOutcome::Missed) => format!("Missed {kind}"),
+        (false, CallOutcome::Declined) => format!("Declined {kind}"),
+        (true, CallOutcome::Declined | CallOutcome::Unanswered | CallOutcome::Missed) => {
+            format!("Unanswered {kind}")
+        }
+        (false, CallOutcome::Unanswered) => format!("Missed {kind}"),
+    }
 }
 
 /// A change to a group's membership.
@@ -267,6 +304,9 @@ impl Message {
         }
         if let MessageKind::GroupMember { change, .. } = &self.kind {
             return member_notice(None, None, *change);
+        }
+        if let MessageKind::Call { outcome, video, .. } = &self.kind {
+            return call_notice(self.outgoing, *outcome, *video);
         }
         let body = self.body.replace(MENTION_PLACEHOLDER, "@");
         let body = body.trim();
