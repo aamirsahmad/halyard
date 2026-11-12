@@ -211,6 +211,34 @@ mod rendering {
             },
         );
         assert!(narrow.width() < light.width());
+        let _composer = capture("story-composer", ThemeMode::Dark, |app, window, cx| {
+            app.set_appearance(signal_app::theme::Appearance::Dark, window, cx);
+            registered(app, window, cx);
+            app.set_list_mode(signal_app::app::ListMode::Stories, window, cx);
+            app.open_story_composer(window, cx);
+        });
+        let _mine = capture_sized(
+            "my-stories",
+            ThemeMode::Light,
+            1120.,
+            |db| {
+                db.apply(Mutation::InsertStory(signal_core::NewStory {
+                    author: signal_backend::demo::DEMO_ME,
+                    sent_at: now_millis(),
+                    text: Some("Off hiking!".into()),
+                    background: Some(signal_backend::interpret::STORY_COLORS[3]),
+                    foreground: Some(0xFFFF_FFFF),
+                    attachment: None,
+                    viewed: true,
+                }))
+                .unwrap();
+            },
+            |app, window, cx| {
+                registered(app, window, cx);
+                app.set_list_mode(signal_app::app::ListMode::Stories, window, cx);
+                app.open_story_viewer(signal_backend::demo::DEMO_ME, window, cx);
+            },
+        );
         let _left = capture_sized(
             "left-group",
             ThemeMode::Light,

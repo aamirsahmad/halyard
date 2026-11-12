@@ -250,6 +250,7 @@ pub fn seed(db: &mut Database, now: Millis) -> signal_core::db::Result<()> {
     )))?;
     // stories from contacts (they expire after 24 hours)
     db.apply(Mutation::InsertStory(signal_core::NewStory {
+        viewed: false,
         author: DEMO_ALICE,
         sent_at: now - 2 * 60 * min,
         text: Some("Fresh snow on the trail ❄️".into()),
@@ -258,6 +259,7 @@ pub fn seed(db: &mut Database, now: Millis) -> signal_core::db::Result<()> {
         attachment: None,
     }))?;
     db.apply(Mutation::InsertStory(signal_core::NewStory {
+        viewed: false,
         author: DEMO_ALICE,
         sent_at: now - 90 * min,
         text: Some("Who's bringing hot chocolate?".into()),
@@ -266,6 +268,7 @@ pub fn seed(db: &mut Database, now: Millis) -> signal_core::db::Result<()> {
         attachment: None,
     }))?;
     db.apply(Mutation::InsertStory(signal_core::NewStory {
+        viewed: false,
         author: DEMO_CAROL,
         sent_at: now - 5 * 60 * min,
         text: Some("New recipe blog post is up!".into()),
@@ -377,6 +380,32 @@ fn demo_reaction(
         });
     };
     match cmd {
+        BackendCommand::PostStory {
+            text,
+            background,
+            attachment,
+        } => vec![Mutation::InsertStory(signal_core::NewStory {
+            author: DEMO_ME,
+            sent_at: ts,
+            text: text.filter(|_| attachment.is_none()),
+            background: background.filter(|_| attachment.is_none()),
+            foreground: Some(0xFFFF_FFFF),
+            attachment: attachment.map(|p| signal_core::Attachment {
+                content_type: mime_guess::from_path(&p)
+                    .first_or_octet_stream()
+                    .essence_str()
+                    .to_string(),
+                file_name: p.file_name().map(|n| n.to_string_lossy().into_owned()),
+                size: std::fs::metadata(&p).map(|m| m.len()).unwrap_or_default(),
+                local_path: Some(p.to_string_lossy().into_owned()),
+                width: None,
+                height: None,
+                pointer: None,
+                view_once: false,
+                viewed: false,
+            }),
+            viewed: true,
+        })],
         BackendCommand::LeaveGroup { group } => vec![Mutation::GroupMember {
             conversation: ConversationId::Group(group),
             actor: DEMO_ME,

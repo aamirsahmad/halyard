@@ -322,6 +322,18 @@ impl Database {
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
+    /// Who sees a "My Story" post: everyone you've chatted with directly
+    /// (accepted, not blocked), except yourself.
+    pub fn story_recipients(&self, me: Uuid) -> Result<Vec<Uuid>> {
+        Ok(self
+            .conversations()?
+            .into_iter()
+            .filter(|c| c.accepted && !c.blocked && c.last_activity > 0)
+            .filter_map(|c| c.id.direct_uuid())
+            .filter(|u| *u != me)
+            .collect())
+    }
+
     /// Every known conversation (including contacts never messaged), by title.
     /// Used for the "new message" contact picker.
     pub fn all_conversations(&self) -> Result<Vec<Conversation>> {
@@ -1020,8 +1032,8 @@ impl Writer<'_> {
             }
             Mutation::InsertStory(st) => {
                 let n = self.conn.execute(
-                    "INSERT OR IGNORE INTO stories (author, sent_at, text, background, foreground, attachment) \
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                    "INSERT OR IGNORE INTO stories (author, sent_at, text, background, foreground, attachment, viewed) \
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
                     params![
                         st.author.to_string(),
                         st.sent_at,
@@ -1029,6 +1041,7 @@ impl Writer<'_> {
                         st.background.map(|v| v as i64),
                         st.foreground.map(|v| v as i64),
                         st.attachment.as_ref().map(serde_json::to_string).transpose()?,
+                        st.viewed as i64,
                     ],
                 )?;
                 changes.stories_changed = n == 1;

@@ -163,6 +163,9 @@ pub struct SignalApp {
     pub(crate) audio: Rc<crate::audio::AudioPlayer>,
     pub(crate) stories: Vec<signal_core::Story>,
     pub(crate) story_reply: Entity<InputState>,
+    pub(crate) story_text: Entity<InputState>,
+    /// Background colour chosen in the new-story dialog.
+    pub(crate) story_background: u32,
     pub(crate) profile_given: Entity<InputState>,
     pub(crate) profile_family: Entity<InputState>,
     pub(crate) profile_about: Entity<InputState>,
@@ -188,6 +191,7 @@ impl SignalApp {
         let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search"));
         let conv_search = cx.new(|cx| InputState::new(window, cx).placeholder("Search in chat"));
         let story_reply = cx.new(|cx| InputState::new(window, cx).placeholder("Reply…"));
+        let story_text = cx.new(|cx| InputState::new(window, cx).placeholder("Type something…"));
         let profile_given =
             cx.new(|cx| InputState::new(window, cx).placeholder("First name (required)"));
         let profile_family =
@@ -335,6 +339,8 @@ impl SignalApp {
             audio: Rc::default(),
             stories: Vec::new(),
             story_reply,
+            story_text,
+            story_background: signal_backend::interpret::STORY_COLORS[0],
             profile_given,
             profile_family,
             profile_about,

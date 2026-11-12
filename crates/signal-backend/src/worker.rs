@@ -1054,9 +1054,88 @@ impl Worker {
                 }
             }
             BackendCommand::LeaveGroup { group } => self.leave_group(group),
+            BackendCommand::PostStory {
+                text,
+                background,
+                attachment,
+            } => self.post_story(text, background, attachment),
             BackendCommand::Unlink => self.unlink().await,
             BackendCommand::Shutdown => {}
         }
+    }
+
+    /// Posts to "My Story": stored locally right away, then sent to each
+    /// recipient as a story message.
+    fn post_story(
+        &mut self,
+        text: Option<String>,
+        background: Option<u32>,
+        attachment: Option<PathBuf>,
+    ) {
+        let (Some(manager), Some(me)) = (self.manager.clone(), self.me) else {
+            self.error("Couldn't post the story", "not linked");
+            return;
+        };
+        let text = text.map(|t| t.trim().to_string()).filter(|t| !t.is_empty());
+        if text.is_none() && attachment.is_none() {
+            return;
+        }
+        let recipients = match self.db.story_recipients(me) {
+            Ok(r) => r,
+            Err(e) => return self.error("Couldn't post the story", e),
+        };
+        let ts = self.next_ts();
+        let background = background.or(Some(interpret::STORY_COLORS[0]));
+        let changes = self.apply(Mutation::InsertStory(signal_core::NewStory {
+            author: me,
+            sent_at: ts,
+            text: text.clone().filter(|_| attachment.is_none()),
+            background: background.filter(|_| attachment.is_none()),
+            foreground: attachment.is_none().then_some(0xFFFF_FFFF),
+            attachment: attachment.as_deref().map(local_attachment),
+            viewed: true,
+        }));
+        self.emit_changes(changes);
+        let tx = self.internal_tx.clone();
+        spawn_local(async move {
+            let mut manager = manager;
+            let file = match &attachment {
+                Some(path) => match upload(&manager, std::slice::from_ref(path)).await {
+                    Ok(mut pointers) => pointers.pop(),
+                    Err(e) => {
+                        let _ = tx.send(Internal::Error(format!("Story not sent: {e}")));
+                        return;
+                    }
+                },
+                None => None,
+            };
+            let profile_key = manager
+                .registration_data()
+                .profile_key()
+                .get_bytes()
+                .to_vec();
+            let story = interpret::story_message(text, background, file, profile_key);
+            let mut failed = 0;
+            for uuid in &recipients {
+                if let Err(e) = manager
+                    .send_message(
+                        ServiceId::Aci(Aci::from(*uuid)),
+                        ContentBody::StoryMessage(story.clone()),
+                        ts as u64,
+                    )
+                    .await
+                {
+                    tracing::warn!(%e, %uuid, "story not delivered");
+                    failed += 1;
+                }
+            }
+            if failed > 0 {
+                let _ = tx.send(Internal::Error(format!(
+                    "Your story couldn't be sent to {failed} of {} people.",
+                    recipients.len()
+                )));
+            }
+        });
     }
 
     /// Removes us from the group on the server, records it locally, then

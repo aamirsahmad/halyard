@@ -880,6 +880,7 @@ fn stories_insert_view_expire() {
     let mut db = db();
     let now = 10 * crate::model::STORY_LIFETIME_MS;
     let story = |at| NewStory {
+        viewed: false,
         author: ALICE,
         sent_at: at,
         text: Some("hello".into()),
@@ -1079,4 +1080,59 @@ fn group_membership_notices_and_leaving() {
     let notice = &ch.messages[0];
     assert!(notice.is_notice());
     assert!(db.conversation(&group).unwrap().unwrap().left, "persisted");
+}
+
+#[test]
+fn story_recipients_are_accepted_direct_chats() {
+    let mut db = db();
+    db.apply(Mutation::UpsertContact(Contact {
+        uuid: ALICE,
+        name: Some("Alice".into()),
+        profile_name: None,
+        phone: None,
+    }))
+    .unwrap();
+    db.apply(incoming(alice(), ALICE, 100, "hi")).unwrap();
+    db.apply(incoming(ConversationId::Direct(BOB), BOB, 100, "hi"))
+        .unwrap();
+    db.apply(Mutation::SetBlocked {
+        conversation: ConversationId::Direct(BOB),
+        blocked: true,
+    })
+    .unwrap();
+    db.apply(Mutation::UpsertGroup {
+        key: GroupKey([3; 32]),
+        title: "G".into(),
+        members: vec![ALICE],
+    })
+    .unwrap();
+    db.apply(incoming(
+        ConversationId::Group(GroupKey([3; 32])),
+        ALICE,
+        200,
+        "g",
+    ))
+    .unwrap();
+    let mut note = NewMessage::text(ConversationId::Direct(ME), ME, 300, true, "note");
+    note.read = true;
+    db.apply(Mutation::InsertMessage(note)).unwrap();
+    assert_eq!(db.story_recipients(ME).unwrap(), vec![ALICE]);
+}
+
+#[test]
+fn own_stories_are_stored_viewed() {
+    let mut db = db();
+    db.apply(Mutation::InsertStory(crate::protocol::NewStory {
+        viewed: true,
+        author: ME,
+        sent_at: crate::model::now_millis(),
+        text: Some("hello".into()),
+        background: Some(0xFF2C6BED),
+        foreground: None,
+        attachment: None,
+    }))
+    .unwrap();
+    let stories = db.stories().unwrap();
+    assert_eq!(stories.len(), 1);
+    assert!(stories[0].viewed);
 }

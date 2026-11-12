@@ -891,3 +891,45 @@ fn member_notices_read_like_signal() {
         "You removed Dave."
     );
 }
+
+#[gpui_kit::test]
+fn post_a_text_story_with_a_chosen_background(cx: &mut TestAppContext) {
+    use signal_backend::interpret::STORY_COLORS;
+    let h = setup(cx);
+    with_app(cx, &h, |a, w, cx| {
+        a.set_list_mode(signal_app::app::ListMode::Stories, w, cx)
+    });
+    with_window(cx, &h, |w, cx| {
+        assert!(w.try_find(eid("my-stories")).is_some());
+        w.click(eid("add-story"), cx);
+    });
+    h.sink.take();
+    with_window(cx, &h, |w, cx| {
+        assert!(w.try_find(eid("story-composer")).is_some());
+        w.input("Off hiking!", cx);
+    });
+    let typed = cx.update(|cx| h.app.read(cx).story_text_value(cx));
+    assert_eq!(typed, "Off hiking!");
+    with_window(cx, &h, |w, cx| w.click(eid("story-color-2"), cx));
+    with_window(cx, &h, |w, cx| w.click(eid("story-post"), cx));
+    assert_eq!(
+        h.sink.take(),
+        vec![BackendCommand::PostStory {
+            text: Some("Off hiking!".into()),
+            background: Some(STORY_COLORS[2]),
+            attachment: None,
+        }]
+    );
+    with_window(cx, &h, |w, _| {
+        assert!(w.try_find(eid("story-composer")).is_none(), "dialog closed")
+    });
+}
+
+#[gpui_kit::test]
+fn empty_text_story_is_not_posted(cx: &mut TestAppContext) {
+    let h = setup(cx);
+    with_app(cx, &h, |a, w, cx| a.open_story_composer(w, cx));
+    h.sink.take();
+    with_window(cx, &h, |w, cx| w.click(eid("story-post"), cx));
+    assert!(h.sink.take().is_empty());
+}

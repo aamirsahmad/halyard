@@ -88,6 +88,47 @@ fn quote_from_proto(q: &data_message::Quote) -> Option<Quote> {
     })
 }
 
+/// A "My Story" post: text on a coloured background, or a photo/video.
+pub fn story_message(
+    text: Option<String>,
+    background: Option<u32>,
+    file: Option<AttachmentPointer>,
+    profile_key: Vec<u8>,
+) -> presage::libsignal_service::proto::StoryMessage {
+    use presage::libsignal_service::proto::{
+        StoryMessage, TextAttachment, story_message::Attachment as StoryAttachment,
+        text_attachment::Background,
+    };
+    let attachment = match file {
+        Some(pointer) => StoryAttachment::FileAttachment(pointer),
+        None => StoryAttachment::TextAttachment(TextAttachment {
+            text,
+            text_style: Some(
+                presage::libsignal_service::proto::text_attachment::Style::Regular as i32,
+            ),
+            text_foreground_color: Some(0xFFFF_FFFF),
+            background: Some(Background::Color(background.unwrap_or(STORY_COLORS[0]))),
+            ..Default::default()
+        }),
+    };
+    StoryMessage {
+        profile_key: Some(profile_key),
+        attachment: Some(attachment),
+        allows_replies: Some(true),
+        ..Default::default()
+    }
+}
+
+/// Background colours offered for text stories (0xAARRGGBB), like Signal's.
+pub const STORY_COLORS: [u32; 6] = [
+    0xFF2C_6BED, // ultramarine
+    0xFF68_8BD4,
+    0xFF8B_6CC8,
+    0xFFC9_4B76,
+    0xFFE0_7A3E,
+    0xFF3E_9D6A,
+];
+
 /// Membership notices for a signed, encrypted group change.
 pub fn group_change_mutations(key: GroupKey, change: &[u8], me: Uuid, at: Millis) -> Vec<Mutation> {
     use presage::libsignal_service::groups_v2::{GroupChange, GroupOperations};
@@ -463,6 +504,7 @@ pub fn interpret(content: &Content, ctx: &Ctx) -> Vec<Output> {
             use presage::libsignal_service::proto::story_message::Attachment as StoryAttachment;
             use presage::libsignal_service::proto::text_attachment::Background;
             let mut new = signal_core::NewStory {
+                viewed: false,
                 author: sender,
                 sent_at: fallback_ts,
                 text: None,
@@ -1178,5 +1220,23 @@ mod tests {
     fn garbage_group_change_is_ignored() {
         let out = run(&content(BOB, group_update(vec![1, 2, 3])));
         assert!(member_mutations(out).is_empty());
+    }
+
+    #[test]
+    fn text_story_round_trips_through_the_receiver() {
+        let story = story_message(
+            Some("hi all".into()),
+            Some(STORY_COLORS[2]),
+            None,
+            vec![7; 32],
+        );
+        assert_eq!(story.allows_replies, Some(true));
+        let out = run(&content(ALICE, ContentBody::StoryMessage(story)));
+        let Some(Output::Mutation(Mutation::InsertStory(s))) = out.into_iter().next() else {
+            panic!("expected a story")
+        };
+        assert_eq!(s.text.as_deref(), Some("hi all"));
+        assert_eq!(s.background, Some(STORY_COLORS[2]));
+        assert!(!s.viewed);
     }
 }

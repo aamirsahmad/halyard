@@ -20,6 +20,7 @@ use crate::app::SignalApp;
 use crate::theme::Palette;
 use crate::views::avatar::Avatar;
 use crate::views::rem_px;
+use signal_backend::interpret::STORY_COLORS;
 
 /// Stories grouped by author, newest author first; each group oldest first.
 pub fn group_by_author(stories: &[Story]) -> Vec<(Uuid, Vec<Story>)> {
@@ -62,9 +63,16 @@ impl SignalApp {
     }
 
     pub(super) fn render_story_list(&mut self, p: &Palette, cx: &mut Context<Self>) -> AnyElement {
-        let groups = group_by_author(&self.stories);
+        let me = self.me();
+        let groups: Vec<(Uuid, Vec<Story>)> = group_by_author(&self.stories)
+            .into_iter()
+            .filter(|(a, _)| Some(*a) != me)
+            .collect();
         let now = now_millis();
         let mut rows: Vec<AnyElement> = Vec::new();
+        if let Some(me) = me {
+            rows.push(self.render_my_stories_row(me, now, p, cx));
+        }
         if groups.is_empty() {
             rows.push(
                 div()
@@ -160,6 +168,229 @@ impl SignalApp {
             .into_any_element()
     }
 
+    fn render_my_stories_row(
+        &self,
+        me: Uuid,
+        now: i64,
+        p: &Palette,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let mine: Vec<&Story> = self.stories.iter().filter(|s| s.author == me).collect();
+        let latest = mine.iter().map(|s| s.sent_at).max();
+        let subtitle = match (mine.len(), latest) {
+            (0, _) | (_, None) => "Add a story".to_string(),
+            (1, Some(t)) => format!("1 story · {}", conversation_list_time(t, now)),
+            (n, Some(t)) => format!("{n} stories · {}", conversation_list_time(t, now)),
+        };
+        let has_stories = !mine.is_empty();
+        div()
+            .id("my-stories")
+            .flex()
+            .items_center()
+            .gap_3()
+            .h(rem_px(64.))
+            .px_3()
+            .mb_1()
+            .rounded(rem_px(10.))
+            .cursor_pointer()
+            .hover(|s| s.bg(p.hover))
+            .on_click(cx.listener(move |this, _, window, cx| {
+                if has_stories {
+                    this.open_story_viewer(me, window, cx)
+                } else {
+                    this.open_story_composer(window, cx)
+                }
+            }))
+            .child(
+                Avatar::new(me.as_bytes().to_vec(), "You")
+                    .photo(self.photo_for(&signal_core::ConversationId::Direct(me)))
+                    .size(rem_px(44.)),
+            )
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .flex_1()
+                    .min_w_0()
+                    .child(div().font_weight(FontWeight::SEMIBOLD).child("My Stories"))
+                    .child(
+                        div()
+                            .text_size(rem_px(13.))
+                            .text_color(p.text_secondary)
+                            .child(subtitle),
+                    ),
+            )
+            .child(
+                Button::new("add-story")
+                    .ghost()
+                    .small()
+                    .icon(IconName::Plus)
+                    .tooltip("Add a story")
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        cx.stop_propagation();
+                        this.open_story_composer(window, cx)
+                    })),
+            )
+            .test_support()
+            .into_any_element()
+    }
+
+    /// The "new story" dialog: a text story on a chosen background colour,
+    /// or a photo/video picked from disk.
+    pub fn open_story_composer(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let input = self.story_text.clone();
+        input.update(cx, |s, cx| s.set_value("", window, cx));
+        self.story_background = STORY_COLORS[0];
+        // after the dialog has taken focus for itself
+        let focus = gpui_kit::Focusable::focus_handle(input.read(cx), cx);
+        window.defer(cx, move |window, cx| focus.focus(window, cx));
+        let app = cx.entity().downgrade();
+        window.open_dialog(cx, move |dialog, _, cx| {
+            let selected = app
+                .upgrade()
+                .map(|a| a.read(cx).story_background)
+                .unwrap_or(STORY_COLORS[0]);
+            let swatches = STORY_COLORS.iter().enumerate().map(|(i, &color)| {
+                let app = app.clone();
+                div()
+                    .id(ElementId::Name(format!("story-color-{i}").into()))
+                    .size(rem_px(28.))
+                    .rounded_full()
+                    .cursor_pointer()
+                    .bg(argb(color))
+                    .border_2()
+                    .border_color(if color == selected {
+                        gpui_kit::white()
+                    } else {
+                        argb(color)
+                    })
+                    .on_click(move |_, window, cx| {
+                        let _ = app.update(cx, |this, cx| {
+                            this.story_background = color;
+                            cx.notify();
+                        });
+                        window.refresh();
+                    })
+                    .test_support()
+            });
+            let post = {
+                let app = app.clone();
+                move |_: &gpui_kit::ClickEvent, window: &mut Window, cx: &mut gpui_kit::App| {
+                    let _ = app.update(cx, |this, cx| this.post_text_story(window, cx));
+                }
+            };
+            let media = {
+                let app = app.clone();
+                move |_: &gpui_kit::ClickEvent, window: &mut Window, cx: &mut gpui_kit::App| {
+                    let _ = app.update(cx, |this, cx| this.pick_story_media(window, cx));
+                }
+            };
+            dialog.title("New story").w(gpui_kit::px(420.)).child(
+                div()
+                    .id("story-composer")
+                    .flex()
+                    .flex_col()
+                    .gap_3()
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .h(rem_px(280.))
+                            .p_6()
+                            .rounded(rem_px(16.))
+                            .bg(argb(selected))
+                            .child(
+                                gpui_kit::component::input::Input::new(&input)
+                                    .id("story-text-input")
+                                    .appearance(false)
+                                    .text_color(gpui_kit::white())
+                                    .text_size(rem_px(22.)),
+                            ),
+                    )
+                    .child(div().flex().gap_2().justify_center().children(swatches))
+                    .child(
+                        div()
+                            .flex()
+                            .gap_2()
+                            .justify_end()
+                            .child(
+                                Button::new("story-add-media")
+                                    .outline()
+                                    .label("Photo or video…")
+                                    .on_click(media),
+                            )
+                            .child(
+                                Button::new("story-post")
+                                    .primary()
+                                    .label("Post to My Story")
+                                    .on_click(post),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .text_size(rem_px(12.))
+                            .text_color(gpui_kit::hsla(0., 0., 0.5, 1.))
+                            .child("Visible for 24 hours to everyone you chat with."),
+                    )
+                    .test_support(),
+            )
+        });
+    }
+
+    pub fn story_text_value(&self, cx: &gpui_kit::App) -> String {
+        self.story_text.read(cx).value().to_string()
+    }
+
+    pub fn post_text_story(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let text = self.story_text.read(cx).value().trim().to_string();
+        if text.is_empty() {
+            return;
+        }
+        self.commands.send(signal_core::BackendCommand::PostStory {
+            text: Some(text),
+            background: Some(self.story_background),
+            attachment: None,
+        });
+        window.close_dialog(cx);
+        cx.notify();
+    }
+
+    /// Picks a photo or video and posts it as a story.
+    pub fn pick_story_media(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let rx = cx.prompt_for_paths(gpui_kit::PathPromptOptions {
+            files: true,
+            directories: false,
+            multiple: false,
+            prompt: Some("Post".into()),
+        });
+        cx.spawn_in(window, async move |this, cx| {
+            if let Ok(Ok(Some(paths))) = rx.await
+                && let Some(path) = paths.into_iter().next()
+            {
+                let _ = this.update_in(cx, |this, window, cx| {
+                    this.post_story_media(path, window, cx)
+                });
+            }
+        })
+        .detach();
+    }
+
+    pub fn post_story_media(
+        &mut self,
+        path: std::path::PathBuf,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.commands.send(signal_core::BackendCommand::PostStory {
+            text: None,
+            background: None,
+            attachment: Some(path),
+        });
+        window.close_dialog(cx);
+        cx.notify();
+    }
+
     /// Opens an author's stories, starting at the first unviewed one.
     pub fn open_story_viewer(&mut self, author: Uuid, window: &mut Window, cx: &mut Context<Self>) {
         let stories: Vec<Story> = group_by_author(&self.stories)
@@ -173,7 +404,12 @@ impl SignalApp {
         let start = stories.iter().position(|s| !s.viewed).unwrap_or(0);
         let index = Rc::new(Cell::new(start));
         self.mark_story_viewed(stories[start].id, cx);
-        let name = self.display_name(&author);
+        let own = self.me() == Some(author);
+        let name = if own {
+            "My Story".to_string()
+        } else {
+            self.display_name(&author)
+        };
         let app = cx.entity().downgrade();
         let access = self.attachments.clone();
         let reply_input = self.story_reply.clone();
@@ -278,7 +514,7 @@ impl SignalApp {
                         }))
                         .test_support(),
                 )
-                .child({
+                .children((!own).then(|| {
                     let sent_at = story.sent_at;
                     let send = {
                         let app = app.clone();
@@ -330,7 +566,7 @@ impl SignalApp {
                                 .on_click(move |_, window, cx| send(None, window, cx))
                         })
                         .test_support()
-                })
+                }))
         });
     }
 

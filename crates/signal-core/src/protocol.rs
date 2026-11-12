@@ -92,6 +92,14 @@ pub enum BackendCommand {
     SetReadReceipts(bool),
     /// Ask the primary device for a fresh contact list.
     SyncContacts,
+    /// Post a story to "My Story" (everyone you chat with): text on a
+    /// coloured background, or a photo/video.
+    PostStory {
+        text: Option<String>,
+        /// Background colour (0xAARRGGBB) of a text story.
+        background: Option<u32>,
+        attachment: Option<PathBuf>,
+    },
     /// Leave a group (removes this account from it on the server).
     LeaveGroup {
         group: GroupKey,
@@ -232,6 +240,8 @@ pub struct NewStory {
     pub background: Option<u32>,
     pub foreground: Option<u32>,
     pub attachment: Option<Attachment>,
+    /// Our own stories are stored as already viewed.
+    pub viewed: bool,
 }
 
 /// Storage mutations; the backend interprets protocol content into these and

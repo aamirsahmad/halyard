@@ -85,5 +85,6 @@ Legend: ✅ done · 🚧 partial · ⬜ not yet · ✖ not supported (reason giv
 | Zoom in / out / actual size (⌘/Ctrl + / − / 0), saved in preferences | ✅ |
 | Stories: view contacts' text and photo stories (24 h), unviewed rings, viewer | ✅ |
 | Replying to stories (text or emoji) | ✅ |
-| Posting your own stories | ✖ needs story distribution-list sending, not in presage |
+| Posting your own stories: text on a coloured background, or a photo/video, to "My Story" | ✅ sent to everyone you chat with; libsignal-service has no story-send flag or sync transcript for stories, so they go as 1:1 story messages and don't appear on your phone |
+| My Stories row, viewing your own stories | ✅ |
 | Voice / video calls | out of scope |
