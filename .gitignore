@@ -2,3 +2,5 @@ target/
 *.db3
 .DS_Store
 /dist/
+/TRASH/
+/TRASH-FILES.md
