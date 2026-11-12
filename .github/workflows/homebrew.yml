@@ -1,0 +1,61 @@
+name: Homebrew
+
+# Updates the cask in aamirsahmad/homebrew-halyard when a release is published.
+# Needs the HOMEBREW_TAP_TOKEN secret: a fine-grained token with
+# "Contents: read and write" on the tap repository. Without it, this job does nothing.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag, for example v0.1.0
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  cask:
+    if: ${{ !github.event.release.prerelease }}
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+      TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Check the token
+        id: token
+        run: |
+          if [ -z "$TOKEN" ]; then
+            echo "::warning::HOMEBREW_TAP_TOKEN is not set. The cask was not updated."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Get the checksum
+        if: steps.token.outputs.skip != 'true'
+        id: sum
+        run: |
+          version="${TAG#v}"
+          zip="Halyard-${version}-macos-universal.zip"
+          gh release download "$TAG" -R "$GITHUB_REPOSITORY" -p SHA256SUMS -O SHA256SUMS
+          sha=$(awk -v f="$zip" '$2 == f { print $1 }' SHA256SUMS)
+          [ -n "$sha" ] || { echo "::error::$zip is not in SHA256SUMS"; exit 1; }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+      - name: Update the cask
+        if: steps.token.outputs.skip != 'true'
+        env:
+          VERSION: ${{ steps.sum.outputs.version }}
+          SHA: ${{ steps.sum.outputs.sha }}
+        run: |
+          git clone --depth 1 "https://x-access-token:${TOKEN}@github.com/aamirsahmad/homebrew-halyard.git" tap
+          cd tap
+          sed -i -E "s/^  version \".*\"/  version \"${VERSION}\"/; s/^  sha256 \".*\"/  sha256 \"${SHA}\"/" Casks/halyard.rb
+          if git diff --quiet; then echo "The cask is already at ${VERSION}."; exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "halyard ${VERSION}"
+          git push

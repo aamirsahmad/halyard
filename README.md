@@ -34,12 +34,19 @@ Halyard connects to your phone as a linked device, like Signal Desktop.
 Download the package for your system from the
 [releases page](https://github.com/aamirsahmad/halyard/releases).
 
-**macOS 11 or later** (Apple silicon and Intel):
+**macOS 11 or later** (Apple silicon and Intel). Use [Homebrew](https://brew.sh/):
+
+```sh
+brew install --cask aamirsahmad/halyard/halyard
+```
+
+Or install the package by hand:
 
 1. Open `Halyard-<version>-macos-universal.dmg`.
 2. Drag Halyard to Applications.
-3. If macOS blocks the first start, open **System Settings → Privacy & Security**.
-   Then click **Open Anyway**.
+3. Apple has not notarised Halyard yet, so macOS blocks the first start
+   ("Apple could not verify Halyard"). Click **Done**. Open **System Settings → Privacy & Security**.
+   Then click **Open Anyway**. Or run `xattr -dr com.apple.quarantine /Applications/Halyard.app`.
 
 **Linux** (x86_64 or arm64, glibc 2.35 or later, for example Ubuntu 22.04, Debian 12 or Fedora 36):
 
@@ -75,7 +82,8 @@ script/package-linux.sh                       # make the Linux packages (needs D
 
 Other options: `--data-dir <PATH>`, `--staging` and `--help`. For detailed logs, set
 `SIGNAL_LOG=debug`. A `v<version>` tag starts the release workflow. This workflow builds all
-packages and makes a draft GitHub release.
+packages and makes a draft GitHub release. When you publish the release, the Homebrew
+workflow updates the cask in [homebrew-halyard](https://github.com/aamirsahmad/homebrew-halyard).
 
 ## Data and security
 

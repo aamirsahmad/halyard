@@ -6,6 +6,10 @@ This file lists the changes in each release. It uses the
 
 ## [Unreleased]
 
+### Added
+
+- Homebrew cask: `brew install --cask aamirsahmad/halyard/halyard`.
+
 ## [0.1.0]
 
 First release. Halyard is an unofficial Signal client for macOS and Linux. It connects to your
