@@ -88,7 +88,7 @@ curl -sSfL -o "$TOOL" \
   "https://github.com/AppImage/appimagetool/releases/download/$APPIMAGETOOL_VERSION/appimagetool-$ARCH.AppImage"
 chmod +x "$TOOL"
 ARCH=$ARCH APPIMAGE_EXTRACT_AND_RUN=1 "$TOOL" --no-appstream "$APPDIR" \
-  "$DIST/Halyard-$VERSION-$ARCH.AppImage" >/dev/null
+  "$DIST/Halyard-$VERSION-$ARCH.AppImage"
 
 (cd "$DIST" && sha256sum "Halyard-$VERSION-$ARCH.AppImage" "halyard_${VERSION}_${DEBARCH}.deb" \
   "halyard-$VERSION-linux-$ARCH.tar.gz" >"halyard-$VERSION-linux-$ARCH.sha256")
