@@ -211,6 +211,48 @@ mod rendering {
             },
         );
         assert!(narrow.width() < light.width());
+        let _statuses = capture_sized(
+            "message-statuses-dark",
+            ThemeMode::Dark,
+            1120.,
+            |db| {
+                use signal_core::MessageStatus;
+                let carol = ConversationId::Direct(signal_backend::demo::DEMO_CAROL);
+                let now = now_millis();
+                for (i, (status, body)) in [
+                    (MessageStatus::Sending, "Sending…"),
+                    (MessageStatus::Sent, "Sent"),
+                    (MessageStatus::Delivered, "Delivered"),
+                    (MessageStatus::Read, "Read"),
+                    (MessageStatus::Failed, "Failed"),
+                ]
+                .into_iter()
+                .enumerate()
+                {
+                    let mut m = NewMessage::text(
+                        carol,
+                        signal_backend::demo::DEMO_ME,
+                        now + i as i64 * 60_000,
+                        true,
+                        body,
+                    );
+                    m.status = status;
+                    m.read = true;
+                    db.apply(Mutation::InsertMessage(m)).unwrap();
+                }
+            },
+            |app, window, cx| {
+                app.set_appearance(signal_app::theme::Appearance::Dark, window, cx);
+                registered(app, window, cx);
+                app.open_conversation(
+                    ConversationId::Direct(signal_backend::demo::DEMO_CAROL),
+                    window,
+                    cx,
+                );
+                app.composer()
+                    .update(cx, |s, cx| s.set_value("On my way!", window, cx));
+            },
+        );
         let _send = capture("composer-send", ThemeMode::Light, |app, window, cx| {
             registered(app, window, cx);
             app.open_conversation(ConversationId::Direct(DEMO_ALICE), window, cx);
