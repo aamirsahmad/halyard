@@ -12,7 +12,7 @@
 set -euo pipefail
 
 WEBRTC_VERSION=8037e
-STAMP="$WEBRTC_VERSION-1" # bump when the local processing changes
+STAMP="$WEBRTC_VERSION-2" # bump when the local processing changes
 platform="${1:-}"
 host=0
 if [[ -z "$platform" ]]; then
@@ -57,12 +57,21 @@ if [[ "$platform" == linux-* ]]; then
   # OpenSSL's (which SQLCipher uses on Linux). Give WebRTC's own C symbols a
   # prefix so each library keeps its own copy. RingRTC calls only Rust_*
   # functions; C++ (_Z*) and compiler runtime (__*) names stay as they are.
+  # The x86_64 objects use CREL relocations, which GNU binutils can't read; use
+  # LLVM's tools from rustup's llvm-tools component (see rust-toolchain.toml).
+  bin="$(rustc --print sysroot)/lib/rustlib/$(rustc -vV | sed -n 's/^host: //p')/bin"
+  [[ -x "$bin/llvm-objcopy" ]] || rustup component add llvm-tools >&2
   echo "Renaming WebRTC's C symbols..." >&2
   map="$out/symbols.map"
-  nm -g --defined-only -P "$lib" 2>/dev/null |
+  "$bin/llvm-nm" -g --defined-only -P "$lib" 2>/dev/null |
     awk 'NF >= 2 && $2 ~ /^[A-Za-z]$/ { print $1 }' |
     grep -vE '^(_Z|Rust_|__)' | sort -u | awk '{ print $1 " halyard_webrtc_" $1 }' >"$map"
-  objcopy --redefine-syms="$map" "$lib"
+  [[ $(wc -l <"$map") -gt 1000 ]] || { echo "found too few symbols to rename" >&2; exit 1; }
+  "$bin/llvm-objcopy" --redefine-syms="$map" "$lib"
+  if "$bin/llvm-nm" -g --defined-only -P "$lib" 2>/dev/null | grep -q '^OPENSSL_config '; then
+    echo "renaming failed" >&2
+    exit 1
+  fi
 fi
 ln -s release "$out/debug"   # RingRTC looks in debug/ for debug builds; only release prebuilts exist
 echo "$STAMP" > "$stamp"

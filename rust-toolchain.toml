@@ -1,4 +1,5 @@
 [toolchain]
 channel = "1.99.1"
-components = ["rustfmt", "clippy"]
+# llvm-tools: script/fetch-webrtc.sh renames symbols in WebRTC on Linux
+components = ["rustfmt", "clippy", "llvm-tools"]
 profile = "minimal"
