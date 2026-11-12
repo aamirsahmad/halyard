@@ -53,7 +53,7 @@ Legend: ✅ done · 🚧 partial · ⬜ not yet · ✖ not supported (reason giv
 | Placeholder for unsupported message types (payments, polls, gift badges) | ✅ |
 | Image viewer (lightbox) with Open and Save As | ✅ |
 | Search within a conversation | ✅ |
-| Message requests for unknown senders (accept / block / delete) | 🚧 detected from the contact sync; presage doesn't expose Signal's accepted state |
+| Message requests for unknown senders (accept / block / delete) | ✅ accepted and blocked state read from Signal's storage service (what your phone decided); falls back to the contact sync for chats it doesn't list. Choices made here aren't written back to the storage service |
 | Block / unblock contacts | ✅ |
 | Safety number view | ✅ |
 | Leave group (header menu or group details, with confirmation); "no longer a member" banner | ✅ signed group change sent through libsignal-service's public push API; not yet exercised against a live group |

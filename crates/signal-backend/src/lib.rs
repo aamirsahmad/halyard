@@ -7,6 +7,7 @@ pub mod demo;
 pub mod groups;
 pub mod interpret;
 pub mod paths;
+pub mod storage;
 pub mod worker;
 
 /// User agent for requests this crate makes itself.

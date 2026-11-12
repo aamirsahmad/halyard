@@ -383,6 +383,7 @@ impl Worker {
             Err(e) => self.error("Failed to save contacts", e),
         }
         self.emit(BackendEvent::ContactsChanged);
+        self.sync_chat_states().await;
         // photos for the chats in the list (most recent first) and yourself
         let mut wanted: Vec<ConversationId> = self
             .db
@@ -396,6 +397,38 @@ impl Worker {
             wanted.insert(0, ConversationId::Direct(me));
         }
         self.fetch_avatars(wanted);
+    }
+
+    /// Reads accepted/blocked state from the storage service in the
+    /// background, so message requests match the phone.
+    async fn sync_chat_states(&mut self) {
+        let Some(manager) = self.manager.as_ref() else {
+            return;
+        };
+        let master_key = match self.store.fetch_master_key().await {
+            Ok(Some(k)) => k,
+            Ok(None) => {
+                tracing::info!("no storage master key yet; keeping local message-request state");
+                return;
+            }
+            Err(e) => return tracing::warn!(%e, "couldn't read the master key"),
+        };
+        let account = match crate::groups::Account::from_registration(manager.registration_data()) {
+            Ok(a) => a,
+            Err(e) => return tracing::warn!(%e, "no account credentials for storage sync"),
+        };
+        let tx = self.internal_tx.clone();
+        spawn_local(async move {
+            match crate::storage::chat_states(account.push_service(), &master_key).await {
+                Ok(states) => {
+                    tracing::info!(count = states.len(), "chat states from the storage service");
+                    let _ = tx.send(Internal::Apply(Box::new(Mutation::RemoteChatStates {
+                        states,
+                    })));
+                }
+                Err(e) => tracing::warn!(%e, "storage service sync failed"),
+            }
+        });
     }
 
     /// Syncs a group's title and members from presage's store (which presage

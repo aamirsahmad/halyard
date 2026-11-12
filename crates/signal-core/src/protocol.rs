@@ -244,6 +244,15 @@ pub struct NewStory {
     pub viewed: bool,
 }
 
+/// A chat's state as recorded in Signal's storage service.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RemoteChatState {
+    pub conversation: ConversationId,
+    /// "Whitelisted": you accepted the chat (or started it).
+    pub accepted: bool,
+    pub blocked: bool,
+}
+
 /// Storage mutations; the backend interprets protocol content into these and
 /// the [`crate::db::Database`] applies them.
 #[derive(Clone, Debug, PartialEq)]
@@ -366,6 +375,11 @@ pub enum Mutation {
         conversation: ConversationId,
         blocked: bool,
     },
+    /// Message-request and block state from Signal's storage service (what
+    /// the phone decided). Authoritative for the chats it lists.
+    RemoteChatStates {
+        states: Vec<RemoteChatState>,
+    },
     /// A member joined, left or was removed; adds a notice to the timeline
     /// and marks the group as left when the member is this account.
     GroupMember {
@@ -411,6 +425,7 @@ impl Mutation {
             | Mutation::AttachmentDownloaded { .. }
             | Mutation::ExpireDue { .. }
             | Mutation::InsertStory(_)
+            | Mutation::RemoteChatStates { .. }
             | Mutation::MarkStoryViewed { .. }
             | Mutation::ContactsSynced { .. }
             | Mutation::ViewOnceOpened { .. }

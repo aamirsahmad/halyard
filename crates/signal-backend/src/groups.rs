@@ -62,6 +62,17 @@ impl Account {
     }
 }
 
+impl Account {
+    /// An authenticated push service for this account.
+    pub fn push_service(&self) -> PushService {
+        PushService::new(
+            self.servers,
+            Some(self.credentials.clone()),
+            crate::USER_AGENT,
+        )
+    }
+}
+
 /// A signed group change, ready to be sent to members.
 pub struct SignedChange {
     pub revision: u32,

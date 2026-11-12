@@ -1136,3 +1136,75 @@ fn own_stories_are_stored_viewed() {
     assert_eq!(stories.len(), 1);
     assert!(stories[0].viewed);
 }
+
+#[test]
+fn storage_service_state_decides_message_requests() {
+    use crate::protocol::RemoteChatState;
+    let mut db = db();
+    // Alice is a synced contact, but the phone never accepted her chat
+    db.apply(Mutation::UpsertContact(Contact {
+        uuid: ALICE,
+        name: Some("Alice".into()),
+        profile_name: None,
+        phone: None,
+    }))
+    .unwrap();
+    db.apply(incoming(alice(), ALICE, 100, "hi")).unwrap();
+    // Bob is unknown locally (a message request by the heuristic)
+    let bob = ConversationId::Direct(BOB);
+    db.apply(incoming(bob, BOB, 100, "hello")).unwrap();
+    assert!(db.conversation(&alice()).unwrap().unwrap().accepted);
+    assert!(!db.conversation(&bob).unwrap().unwrap().accepted);
+
+    let ch = db
+        .apply(Mutation::RemoteChatStates {
+            states: vec![
+                RemoteChatState {
+                    conversation: alice(),
+                    accepted: false,
+                    blocked: true,
+                },
+                RemoteChatState {
+                    conversation: bob,
+                    accepted: true,
+                    blocked: false,
+                },
+            ],
+        })
+        .unwrap();
+    assert_eq!(ch.conversations.len(), 2);
+    let a = db.conversation(&alice()).unwrap().unwrap();
+    assert!(!a.accepted && a.blocked);
+    assert!(db.conversation(&bob).unwrap().unwrap().accepted);
+
+    // unchanged states report no changes
+    let ch = db
+        .apply(Mutation::RemoteChatStates {
+            states: vec![RemoteChatState {
+                conversation: bob,
+                accepted: true,
+                blocked: false,
+            }],
+        })
+        .unwrap();
+    assert!(ch.conversations.is_empty());
+
+    // a whitelisted stranger's *new* chat is not a message request
+    let carol = Uuid::from_u128(0xCA401);
+    db.apply(Mutation::RemoteChatStates {
+        states: vec![RemoteChatState {
+            conversation: ConversationId::Direct(carol),
+            accepted: true,
+            blocked: false,
+        }],
+    })
+    .unwrap();
+    db.apply(incoming(ConversationId::Direct(carol), carol, 200, "yo"))
+        .unwrap();
+    assert!(
+        db.conversation(&ConversationId::Direct(carol))
+            .unwrap()
+            .unwrap()
+            .accepted
+    );
+}

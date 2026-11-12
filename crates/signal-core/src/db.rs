@@ -31,7 +31,7 @@ pub enum DbError {
 
 pub type Result<T> = std::result::Result<T, DbError>;
 
-pub const SCHEMA_VERSION: i64 = 7;
+pub const SCHEMA_VERSION: i64 = 8;
 
 const MIGRATIONS: &[&str] = &[
     // v1
@@ -122,6 +122,10 @@ const MIGRATIONS: &[&str] = &[
     // v7: groups this account has left
     r#"
     ALTER TABLE conversations ADD COLUMN left_group INTEGER NOT NULL DEFAULT 0;
+    "#,
+    // v8: accepted state from the storage service (NULL = not listed there)
+    r#"
+    ALTER TABLE contacts ADD COLUMN whitelisted INTEGER;
     "#,
 ];
 
@@ -1097,6 +1101,26 @@ impl Writer<'_> {
                     .conversations
                     .extend(self.conversation(&conversation)?);
             }
+            Mutation::RemoteChatStates { states } => {
+                for st in states {
+                    let id = st.conversation;
+                    if let Some(uuid) = id.direct_uuid() {
+                        self.conn.execute(
+                            "INSERT INTO contacts (uuid, whitelisted) VALUES (?1, ?2) \
+                             ON CONFLICT(uuid) DO UPDATE SET whitelisted = excluded.whitelisted",
+                            params![uuid.to_string(), st.accepted as i64],
+                        )?;
+                    }
+                    let n = self.conn.execute(
+                        "UPDATE conversations SET accepted = ?2, blocked = ?3 \
+                         WHERE id = ?1 AND (accepted != ?2 OR blocked != ?3)",
+                        params![id.to_string(), st.accepted as i64, st.blocked as i64],
+                    )?;
+                    if n > 0 {
+                        changes.conversations.extend(self.conversation(&id)?);
+                    }
+                }
+            }
             Mutation::ContactsSynced { uuids } => {
                 for u in uuids {
                     self.conn.execute(
@@ -1327,7 +1351,8 @@ impl Writer<'_> {
         Ok(self
             .conn
             .query_row(
-                "SELECT 1 FROM contacts WHERE uuid = ?1 AND (synced = 1 OR name IS NOT NULL)",
+                "SELECT 1 FROM contacts WHERE uuid = ?1 AND (whitelisted = 1 OR \
+                 (whitelisted IS NULL AND (synced = 1 OR name IS NOT NULL)))",
                 [uuid.to_string()],
                 |_| Ok(()),
             )
