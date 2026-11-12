@@ -16,7 +16,7 @@ uuid.workspace = true
 rusqlite.workspace = true
 hex.workspace = true
 aes-gcm = "0.10"
-hkdf = "0.12"
+hkdf = "0.13"
 sha2 = "0.10"
 rand = "0.9"
 
