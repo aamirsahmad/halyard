@@ -211,6 +211,12 @@ mod rendering {
             },
         );
         assert!(narrow.width() < light.width());
+        let _send = capture("composer-send", ThemeMode::Light, |app, window, cx| {
+            registered(app, window, cx);
+            app.open_conversation(ConversationId::Direct(DEMO_ALICE), window, cx);
+            app.composer()
+                .update(cx, |s, cx| s.set_value("On my way!", window, cx));
+        });
         let _composer = capture("story-composer", ThemeMode::Dark, |app, window, cx| {
             app.set_appearance(signal_app::theme::Appearance::Dark, window, cx);
             registered(app, window, cx);

@@ -37,11 +37,46 @@ gpui_kit::assets::icon_assets!(
     ]
 );
 
+/// Signal Desktop's own icons (send button, message status), by asset path.
+pub mod signal_icons {
+    pub const SEND: &str = "signal/send-fill.svg";
+    pub const SENDING: &str = "signal/messagestatus-sending.svg";
+    pub const SENT: &str = "signal/messagestatus-sent.svg";
+    pub const DELIVERED: &str = "signal/messagestatus-delivered.svg";
+    pub const READ: &str = "signal/messagestatus-read.svg";
+}
+
+const SIGNAL_ICONS: [(&str, &[u8]); 5] = [
+    (
+        signal_icons::SEND,
+        include_bytes!("../assets/signal/send-fill.svg"),
+    ),
+    (
+        signal_icons::SENDING,
+        include_bytes!("../assets/signal/messagestatus-sending.svg"),
+    ),
+    (
+        signal_icons::SENT,
+        include_bytes!("../assets/signal/messagestatus-sent.svg"),
+    ),
+    (
+        signal_icons::DELIVERED,
+        include_bytes!("../assets/signal/messagestatus-delivered.svg"),
+    ),
+    (
+        signal_icons::READ,
+        include_bytes!("../assets/signal/messagestatus-read.svg"),
+    ),
+];
+
 /// Application asset source.
 pub struct Assets;
 
 impl AssetSource for Assets {
     fn load(&self, path: &str) -> Result<Option<Cow<'static, [u8]>>> {
+        if let Some((_, bytes)) = SIGNAL_ICONS.iter().find(|(p, _)| *p == path) {
+            return Ok(Some(Cow::Borrowed(bytes)));
+        }
         if let Some(bytes) = ExtraIcons.load(path)? {
             return Ok(Some(bytes));
         }
@@ -51,6 +86,12 @@ impl AssetSource for Assets {
     fn list(&self, path: &str) -> Result<Vec<SharedString>> {
         let mut paths = gpui_kit::assets::Assets.list(path)?;
         paths.extend(ExtraIcons.list(path)?);
+        paths.extend(
+            SIGNAL_ICONS
+                .iter()
+                .filter(|(p, _)| p.starts_with(path))
+                .map(|(p, _)| SharedString::from(*p)),
+        );
         paths.sort();
         paths.dedup();
         Ok(paths)
@@ -63,6 +104,20 @@ pub use gpui_kit::assets::IconName as Icons;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn signal_icons_resolve() {
+        for path in [
+            signal_icons::SEND,
+            signal_icons::SENDING,
+            signal_icons::SENT,
+            signal_icons::DELIVERED,
+            signal_icons::READ,
+        ] {
+            let bytes = Assets.load(path).unwrap().expect(path);
+            assert!(bytes.starts_with(b"<svg"), "{path}");
+        }
+    }
 
     #[test]
     fn extra_and_default_icons_resolve() {

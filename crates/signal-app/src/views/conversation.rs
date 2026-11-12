@@ -652,7 +652,7 @@ impl SignalApp {
                         Button::new("recording-send")
                             .primary()
                             .small()
-                            .icon(Icon::new(Icons::SendHorizontal))
+                            .icon(Icon::empty().path(crate::assets::signal_icons::SEND))
                             .label("Send")
                             .on_click(
                                 cx.listener(|this, _, window, cx| this.send_recording(window, cx)),
@@ -703,14 +703,40 @@ impl SignalApp {
                             ),
                     )
                     .child(if can_send || self.editing.is_some() {
-                        Button::new("send")
-                            .when(can_send, |b| b.primary())
-                            .when(!can_send, |b| b.ghost())
-                            .icon(Icon::new(Icons::SendHorizontal))
-                            .tooltip("Send")
+                        // Signal Desktop's send button: a filled accent circle
+                        // with its send-fill arrow (AxoIconButton strong-primary, md)
+                        div()
+                            .id("send")
+                            .flex()
+                            .flex_none()
+                            .items_center()
+                            .justify_center()
+                            .size(rem_px(36.))
+                            .rounded_full()
+                            .when(can_send, |d| {
+                                d.bg(p.accent)
+                                    .cursor_pointer()
+                                    .hover(|s| s.opacity(0.9))
+                                    .text_color(p.accent_text)
+                            })
+                            .when(!can_send, |d| d.text_color(p.text_secondary))
+                            .tooltip(|window, cx| {
+                                gpui_kit::component::tooltip::Tooltip::new("Send").build(window, cx)
+                            })
                             .on_click(
                                 cx.listener(|this, _, window, cx| this.send_composed(window, cx)),
                             )
+                            .child(
+                                gpui_kit::svg()
+                                    .path(crate::assets::signal_icons::SEND)
+                                    .size(rem_px(20.))
+                                    .text_color(if can_send {
+                                        p.accent_text
+                                    } else {
+                                        p.text_secondary
+                                    }),
+                            )
+                            .test_support()
                             .into_any_element()
                     } else {
                         Button::new("record")

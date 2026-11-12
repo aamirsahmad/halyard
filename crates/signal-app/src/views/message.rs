@@ -584,20 +584,36 @@ fn render_message(
         .into_any_element()
 }
 
+/// Signal Desktop's message status icons (images/icons/v3/message_status):
+/// a dotted ring while sending, one ticked circle when sent, two when
+/// delivered, two filled circles when read. Drawn at their native 12px height.
 fn status_icon(status: MessageStatus, color: gpui_kit::Hsla) -> AnyElement {
-    let icon = match status {
-        MessageStatus::Sending => Icon::new(Icons::Clock),
-        MessageStatus::Sent => Icon::new(gpui_kit::component::IconName::Check),
-        MessageStatus::Delivered | MessageStatus::Read => Icon::new(Icons::CheckCheck),
-        MessageStatus::Failed => Icon::new(gpui_kit::component::IconName::CircleAlert),
+    use crate::assets::signal_icons;
+    let (path, width) = match status {
+        MessageStatus::Sending => (signal_icons::SENDING, 12.),
+        MessageStatus::Sent => (signal_icons::SENT, 12.),
+        MessageStatus::Delivered => (signal_icons::DELIVERED, 18.),
+        MessageStatus::Read => (signal_icons::READ, 18.),
+        MessageStatus::Failed => {
+            return Icon::new(gpui_kit::component::IconName::CircleAlert)
+                .xsmall()
+                .text_color(color)
+                .into_any_element();
+        }
         MessageStatus::Received => return div().into_any_element(),
     };
     div()
+        .id(ElementId::Name(format!("status-{status:?}").into()))
         .flex()
-        .when(status == MessageStatus::Read, |d| {
-            d.font_weight(FontWeight::BOLD)
-        })
-        .child(icon.xsmall().text_color(color))
+        .flex_none()
+        .child(
+            gpui_kit::svg()
+                .path(path)
+                .w(rem_px(width))
+                .h(rem_px(12.))
+                .text_color(color),
+        )
+        .test_support()
         .into_any_element()
 }
 
