@@ -19,7 +19,7 @@ jobs:
     outputs:
       version: ${{ steps.v.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - id: v
         run: |
           version=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
@@ -33,9 +33,9 @@ jobs:
     needs: version
     runs-on: macos-14
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: brew install protobuf
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - uses: actions-rust-lang/setup-rust-toolchain@v2
         with:
           target: aarch64-apple-darwin,x86_64-apple-darwin
       # Optional signing: set MACOS_CERTIFICATE (base64 .p12),
@@ -64,7 +64,7 @@ jobs:
         run: script/package-macos.sh
       - name: Smoke test
         run: dist/Halyard.app/Contents/MacOS/halyard --version
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: macos
           path: |
@@ -79,9 +79,9 @@ jobs:
         runner: [ubuntu-22.04, ubuntu-22.04-arm]
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: script/install-linux-deps.sh && sudo apt-get install -y --no-install-recommends file unzip desktop-file-utils
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - uses: actions-rust-lang/setup-rust-toolchain@v2
       - name: Build packages
         run: script/build-linux-packages.sh
       - name: Smoke test
@@ -90,7 +90,7 @@ jobs:
           APPIMAGE_EXTRACT_AND_RUN=1 dist/*.AppImage --version
           sudo apt-get install -y ./dist/*.deb
           halyard --version
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: linux-${{ matrix.runner }}
           path: |
@@ -104,7 +104,7 @@ jobs:
     if: github.ref_type == 'tag'
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: dist
           merge-multiple: true
