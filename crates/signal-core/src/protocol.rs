@@ -100,6 +100,14 @@ pub enum BackendCommand {
         background: Option<u32>,
         attachment: Option<PathBuf>,
     },
+    /// Tell your other devices (the phone records it in the storage service)
+    /// how a message request was answered.
+    MessageRequestResponse {
+        conversation: ConversationId,
+        response: RequestResponse,
+    },
+    /// The blocked list changed locally: sync it to your other devices.
+    SyncBlockedList,
     /// Leave a group (removes this account from it on the server).
     LeaveGroup {
         group: GroupKey,
@@ -244,6 +252,15 @@ pub struct NewStory {
     pub viewed: bool,
 }
 
+/// How a message request was answered.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RequestResponse {
+    Accept,
+    Delete,
+    Block,
+    BlockAndDelete,
+}
+
 /// A chat's state as recorded in Signal's storage service.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RemoteChatState {
@@ -375,6 +392,12 @@ pub enum Mutation {
         conversation: ConversationId,
         blocked: bool,
     },
+    /// The complete blocked list, synced from your phone: everything listed
+    /// is blocked, everything else unblocked.
+    BlockedList {
+        contacts: Vec<Uuid>,
+        groups: Vec<GroupKey>,
+    },
     /// Message-request and block state from Signal's storage service (what
     /// the phone decided). Authoritative for the chats it lists.
     RemoteChatStates {
@@ -426,6 +449,7 @@ impl Mutation {
             | Mutation::ExpireDue { .. }
             | Mutation::InsertStory(_)
             | Mutation::RemoteChatStates { .. }
+            | Mutation::BlockedList { .. }
             | Mutation::MarkStoryViewed { .. }
             | Mutation::ContactsSynced { .. }
             | Mutation::ViewOnceOpened { .. }

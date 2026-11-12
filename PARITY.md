@@ -53,10 +53,10 @@ Legend: ✅ done · 🚧 partial · ⬜ not yet · ✖ not supported (reason giv
 | Placeholder for unsupported message types (payments, polls, gift badges) | ✅ |
 | Image viewer (lightbox) with Open and Save As | ✅ |
 | Search within a conversation | ✅ |
-| Message requests for unknown senders (accept / block / delete) | ✅ accepted and blocked state read from Signal's storage service (what your phone decided); falls back to the contact sync for chats it doesn't list. Choices made here aren't written back to the storage service |
-| Block / unblock contacts | ✅ |
+| Message requests for unknown senders (accept / block / delete) | ✅ state read from Signal's storage service; answers are synced to your phone (MessageRequestResponse), which records them, as Signal Desktop does |
+| Block / unblock contacts | ✅ the blocked list is synced both ways with your phone |
 | Safety number view | ✅ |
-| Leave group (header menu or group details, with confirmation); "no longer a member" banner | ✅ signed group change sent through libsignal-service's public push API; not yet exercised against a live group |
+| Leave group (header menu or group details, with confirmation); "no longer a member" banner | ✅ signed group change sent through libsignal-service's public push API |
 | Group membership notices ("Bob left the group.", "Alice added Carol.", "Alice removed you.") | ✅ |
 | Voice notes and audio attachments: in-app playback with progress | ✅ |
 | Recording voice notes (mic button when the composer is empty) | ✅ MP3 via LAME at ~96 kbps mono, like Signal Desktop (which uses LAME at 90 kbps); WAV only if the encoder fails |
@@ -85,6 +85,14 @@ Legend: ✅ done · 🚧 partial · ⬜ not yet · ✖ not supported (reason giv
 | Zoom in / out / actual size (⌘/Ctrl + / − / 0), saved in preferences | ✅ |
 | Stories: view contacts' text and photo stories (24 h), unviewed rings, viewer | ✅ |
 | Replying to stories (text or emoji) | ✅ |
-| Posting your own stories: text on a coloured background, or a photo/video, to "My Story" | ✅ sent to everyone you chat with; libsignal-service has no story-send flag or sync transcript for stories, so they go as 1:1 story messages and don't appear on your phone |
+| Posting your own stories: text on a coloured background, or a photo/video, to "My Story" | ✅ sent to everyone you chat with, plus a sent-transcript so your phone shows it; stories you post from the phone appear here too |
 | My Stories row, viewing your own stories | ✅ |
 | Voice / video calls | out of scope |
+
+## Verification
+
+Everything above is covered by automated tests (unit, headless UI and offscreen rendering) on
+macOS and Linux, and works in `--demo` mode. The network paths added most recently (leave
+group, posting stories, storage-service state and the request/blocked/story syncs) are built
+from Signal's protocol definitions and round-trip tested, but have not yet been exercised
+against a live account.

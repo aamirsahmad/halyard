@@ -380,6 +380,10 @@ fn demo_reaction(
         });
     };
     match cmd {
+        // syncs to your other devices: nothing to do in the demo
+        BackendCommand::MessageRequestResponse { .. } | BackendCommand::SyncBlockedList => {
+            vec![]
+        }
         BackendCommand::PostStory {
             text,
             background,

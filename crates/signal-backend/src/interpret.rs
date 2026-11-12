@@ -129,6 +129,139 @@ pub const STORY_COLORS: [u32; 6] = [
     0xFF3E_9D6A,
 ];
 
+/// Block-list and message-request syncs from your phone.
+fn sync_settings(sync: &sync_message::Content, ctx: &Ctx, out: &mut Vec<Output>) {
+    match sync {
+        sync_message::Content::Blocked(b) => {
+            let mut contacts: Vec<Uuid> = b
+                .acis
+                .iter()
+                .filter_map(|a| parse_aci(Some(a), None))
+                .chain(
+                    b.acis_binary
+                        .iter()
+                        .filter_map(|a| parse_aci(None, Some(a))),
+                )
+                .collect();
+            contacts.sort();
+            contacts.dedup();
+            let groups = b
+                .group_ids
+                .iter()
+                .filter_map(|id| (ctx.group_by_id)(id))
+                .collect();
+            out.push(Output::Mutation(Mutation::BlockedList { contacts, groups }));
+        }
+        sync_message::Content::MessageRequestResponse(r) => {
+            use sync_message::message_request_response::Type;
+            let conversation = match (
+                parse_aci(r.thread_aci.as_deref(), r.thread_aci_binary.as_deref()),
+                r.group_id.as_deref(),
+            ) {
+                (Some(u), _) => ConversationId::Direct(u),
+                (None, Some(id)) => match (ctx.group_by_id)(id) {
+                    Some(key) => ConversationId::Group(key),
+                    None => return,
+                },
+                _ => return,
+            };
+            let block = |blocked| {
+                Output::Mutation(Mutation::SetBlocked {
+                    conversation,
+                    blocked,
+                })
+            };
+            let delete = || Output::Mutation(Mutation::DeleteConversation { conversation });
+            match r.r#type.and_then(|t| Type::try_from(t).ok()) {
+                Some(Type::Accept) => out.push(Output::Mutation(Mutation::Accept { conversation })),
+                Some(Type::Delete) => out.push(delete()),
+                Some(Type::Block | Type::BlockAndSpam) => out.push(block(true)),
+                Some(Type::BlockAndDelete) => {
+                    out.push(block(true));
+                    out.push(delete());
+                }
+                _ => {}
+            }
+        }
+        _ => {}
+    }
+}
+
+/// The sync telling your other devices how a message request was answered.
+pub fn request_response_sync(
+    conversation: ConversationId,
+    response: signal_core::RequestResponse,
+) -> SyncMessage {
+    use sync_message::message_request_response::Type;
+    let r#type = match response {
+        signal_core::RequestResponse::Accept => Type::Accept,
+        signal_core::RequestResponse::Delete => Type::Delete,
+        signal_core::RequestResponse::Block => Type::Block,
+        signal_core::RequestResponse::BlockAndDelete => Type::BlockAndDelete,
+    };
+    let mut r = sync_message::MessageRequestResponse {
+        r#type: Some(r#type as i32),
+        ..Default::default()
+    };
+    match conversation {
+        ConversationId::Direct(u) => {
+            r.thread_aci = Some(u.to_string());
+            r.thread_aci_binary = Some(u.as_bytes().to_vec());
+        }
+        ConversationId::Group(key) => {
+            r.group_id = Some(crate::worker::group_identifier(&key).to_vec())
+        }
+    }
+    SyncMessage {
+        content: Some(sync_message::Content::MessageRequestResponse(r)),
+        ..Default::default()
+    }
+}
+
+/// The full blocked list, as Signal clients sync it.
+pub fn blocked_sync(contacts: &[Uuid], groups: &[GroupKey]) -> SyncMessage {
+    SyncMessage {
+        content: Some(sync_message::Content::Blocked(sync_message::Blocked {
+            numbers: vec![],
+            acis: contacts.iter().map(Uuid::to_string).collect(),
+            acis_binary: contacts.iter().map(|u| u.as_bytes().to_vec()).collect(),
+            group_ids: groups
+                .iter()
+                .map(|g| crate::worker::group_identifier(g).to_vec())
+                .collect(),
+        })),
+        ..Default::default()
+    }
+}
+
+/// "My Story" distribution list id.
+pub const MY_STORY_ID: &str = "00000000-0000-0000-0000-000000000000";
+
+/// The sent-transcript of a story, so your other devices show it too.
+pub fn story_sent_sync(
+    story: presage::libsignal_service::proto::StoryMessage,
+    recipients: &[Uuid],
+    ts: Millis,
+) -> SyncMessage {
+    SyncMessage {
+        content: Some(sync_message::Content::Sent(sync_message::Sent {
+            timestamp: Some(ts as u64),
+            story_message: Some(story),
+            story_message_recipients: recipients
+                .iter()
+                .map(|u| sync_message::sent::StoryMessageRecipient {
+                    destination_service_id: Some(u.to_string()),
+                    destination_service_id_binary: Some(u.as_bytes().to_vec()),
+                    distribution_list_ids: vec![MY_STORY_ID.into()],
+                    is_allowed_to_reply: Some(true),
+                })
+                .collect(),
+            ..Default::default()
+        })),
+        ..Default::default()
+    }
+}
+
 /// Membership notices for a signed, encrypted group change.
 pub fn group_change_mutations(key: GroupKey, change: &[u8], me: Uuid, at: Millis) -> Vec<Mutation> {
     use presage::libsignal_service::groups_v2::{GroupChange, GroupOperations};
@@ -452,7 +585,15 @@ pub fn interpret(content: &Content, ctx: &Ctx) -> Vec<Output> {
             read,
             ..
         }) => {
+            sync_settings(sync, ctx, &mut out);
             if let sync_message::Content::Sent(sent) = sync {
+                if let Some(story) = &sent.story_message {
+                    let ts = sent.timestamp.map(|t| t as Millis).unwrap_or(fallback_ts);
+                    if let Some(mut new) = story_of(story, ctx.me, ts) {
+                        new.viewed = true;
+                        out.push(Output::Mutation(Mutation::InsertStory(new)));
+                    }
+                }
                 if let Some(dm) = &sent.message {
                     let ts = sent.timestamp.map(|t| t as Millis).unwrap_or(fallback_ts);
                     data_message(dm, conversation, ctx.me, true, ts, ctx, &mut out);
@@ -501,40 +642,46 @@ pub fn interpret(content: &Content, ctx: &Ctx) -> Vec<Output> {
             });
         }
         ContentBody::StoryMessage(story) if sender != ctx.me => {
-            use presage::libsignal_service::proto::story_message::Attachment as StoryAttachment;
-            use presage::libsignal_service::proto::text_attachment::Background;
-            let mut new = signal_core::NewStory {
-                viewed: false,
-                author: sender,
-                sent_at: fallback_ts,
-                text: None,
-                background: None,
-                foreground: None,
-                attachment: None,
-            };
-            match &story.attachment {
-                Some(StoryAttachment::TextAttachment(t)) => {
-                    new.text = t.text.clone();
-                    new.foreground = t.text_foreground_color;
-                    new.background = match &t.background {
-                        Some(Background::Color(c)) => Some(*c),
-                        Some(Background::Gradient(g)) => {
-                            g.colors.first().copied().or(g.start_color)
-                        }
-                        None => None,
-                    };
-                }
-                Some(StoryAttachment::FileAttachment(p)) => {
-                    new.attachment = Some(attachment_from_pointer(p))
-                }
-                None => return out,
+            if let Some(new) = story_of(story, sender, fallback_ts) {
+                out.push(Output::Mutation(Mutation::InsertStory(new)));
             }
-            out.push(Output::Mutation(Mutation::InsertStory(new)));
         }
         // calls are out of scope for now; null messages, etc. are ignored
         _ => {}
     }
     out
+}
+
+/// A story as stored locally (unviewed); `None` without content.
+fn story_of(
+    story: &presage::libsignal_service::proto::StoryMessage,
+    author: Uuid,
+    sent_at: Millis,
+) -> Option<signal_core::NewStory> {
+    use presage::libsignal_service::proto::story_message::Attachment as StoryAttachment;
+    use presage::libsignal_service::proto::text_attachment::Background;
+    let mut new = signal_core::NewStory {
+        viewed: false,
+        author,
+        sent_at,
+        text: None,
+        background: None,
+        foreground: None,
+        attachment: None,
+    };
+    match story.attachment.as_ref()? {
+        StoryAttachment::TextAttachment(t) => {
+            new.text = t.text.clone();
+            new.foreground = t.text_foreground_color;
+            new.background = match &t.background {
+                Some(Background::Color(c)) => Some(*c),
+                Some(Background::Gradient(g)) => g.colors.first().copied().or(g.start_color),
+                None => None,
+            };
+        }
+        StoryAttachment::FileAttachment(p) => new.attachment = Some(attachment_from_pointer(p)),
+    }
+    Some(new)
 }
 
 fn read_sync(read: &[sync_message::Read], out: &mut Vec<Output>) {
@@ -1238,5 +1385,101 @@ mod tests {
         assert_eq!(s.text.as_deref(), Some("hi all"));
         assert_eq!(s.background, Some(STORY_COLORS[2]));
         assert!(!s.viewed);
+    }
+
+    fn run_sync(sync: SyncMessage) -> Vec<Output> {
+        let key = GroupKey(GROUP);
+        let id = crate::worker::group_identifier(&key);
+        let resolve = move |g: &[u8]| (g == id).then_some(key);
+        interpret(
+            &content(ME, ContentBody::SynchronizeMessage(sync)),
+            &Ctx {
+                me: ME,
+                received_at: 42,
+                group_by_id: &resolve,
+            },
+        )
+    }
+
+    fn mutations(out: Vec<Output>) -> Vec<Mutation> {
+        out.into_iter()
+            .filter_map(|o| match o {
+                Output::Mutation(m) => Some(m),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn blocked_list_round_trips() {
+        let sync = blocked_sync(&[ALICE, BOB], &[GroupKey(GROUP)]);
+        assert_eq!(
+            mutations(run_sync(sync)),
+            vec![Mutation::BlockedList {
+                contacts: vec![BOB, ALICE], // sorted, deduplicated
+                groups: vec![GroupKey(GROUP)],
+            }]
+        );
+    }
+
+    #[test]
+    fn message_request_responses_round_trip() {
+        use signal_core::RequestResponse;
+        let bob = ConversationId::Direct(BOB);
+        let group = ConversationId::Group(GroupKey(GROUP));
+        assert_eq!(
+            mutations(run_sync(request_response_sync(
+                bob,
+                RequestResponse::Accept
+            ))),
+            vec![Mutation::Accept { conversation: bob }]
+        );
+        assert_eq!(
+            mutations(run_sync(request_response_sync(
+                group,
+                RequestResponse::BlockAndDelete
+            ))),
+            vec![
+                Mutation::SetBlocked {
+                    conversation: group,
+                    blocked: true
+                },
+                Mutation::DeleteConversation {
+                    conversation: group
+                },
+            ]
+        );
+        assert_eq!(
+            mutations(run_sync(request_response_sync(
+                bob,
+                RequestResponse::Delete
+            ))),
+            vec![Mutation::DeleteConversation { conversation: bob }]
+        );
+    }
+
+    #[test]
+    fn story_posted_on_another_device_shows_in_my_stories() {
+        let story = story_message(Some("from my phone".into()), None, None, vec![1; 32]);
+        let sync = story_sent_sync(story, &[ALICE], 777);
+        let SyncMessage {
+            content: Some(sync_message::Content::Sent(sent)),
+            ..
+        } = &sync
+        else {
+            panic!()
+        };
+        assert_eq!(
+            sent.story_message_recipients[0].distribution_list_ids,
+            vec![MY_STORY_ID.to_string()]
+        );
+        let Ok([Mutation::InsertStory(s)]) = <[Mutation; 1]>::try_from(mutations(run_sync(sync)))
+        else {
+            panic!("expected one story")
+        };
+        assert_eq!(s.author, ME);
+        assert_eq!(s.sent_at, 777);
+        assert_eq!(s.text.as_deref(), Some("from my phone"));
+        assert!(s.viewed);
     }
 }

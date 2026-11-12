@@ -137,9 +137,22 @@ impl SignalApp {
     }
 
     pub fn delete_conversation(&mut self, id: ConversationId, cx: &mut Context<Self>) {
+        // deleting a message request answers it, and the phone records that
+        if self
+            .state
+            .conversation(&id)
+            .is_some_and(|c| !c.accepted && !c.blocked)
+        {
+            self.commands.send(BackendCommand::MessageRequestResponse {
+                conversation: id,
+                response: signal_core::RequestResponse::Delete,
+            });
+        }
         self.apply_local(Mutation::DeleteConversation { conversation: id }, cx);
     }
 
+    /// Blocks or unblocks, and syncs the blocked list to your other devices
+    /// like Signal Desktop does.
     pub fn set_blocked(&mut self, id: ConversationId, blocked: bool, cx: &mut Context<Self>) {
         self.apply_local(
             Mutation::SetBlocked {
@@ -148,18 +161,27 @@ impl SignalApp {
             },
             cx,
         );
+        self.commands.send(BackendCommand::SyncBlockedList);
     }
 
     pub fn accept_request(&mut self, id: ConversationId, cx: &mut Context<Self>) {
         self.apply_local(Mutation::Accept { conversation: id }, cx);
+        self.commands.send(BackendCommand::MessageRequestResponse {
+            conversation: id,
+            response: signal_core::RequestResponse::Accept,
+        });
         self.commands
             .send(BackendCommand::MarkRead { conversation: id });
     }
 
     /// Blocks and deletes a message request.
     pub fn block_and_delete(&mut self, id: ConversationId, cx: &mut Context<Self>) {
+        self.commands.send(BackendCommand::MessageRequestResponse {
+            conversation: id,
+            response: signal_core::RequestResponse::BlockAndDelete,
+        });
         self.set_blocked(id, true, cx);
-        self.delete_conversation(id, cx);
+        self.apply_local(Mutation::DeleteConversation { conversation: id }, cx);
     }
 
     pub fn set_expire_timer(

@@ -192,20 +192,62 @@ fn message_request_banner_accept_and_block(cx: &mut TestAppContext) {
         w.click("request-accept", cx);
     });
     assert!(conv(cx, &h, id).unwrap().accepted);
+    let sent = h.sink.take();
+    assert!(sent.contains(&BackendCommand::MarkRead { conversation: id }));
     assert!(
-        h.sink
-            .take()
-            .contains(&BackendCommand::MarkRead { conversation: id })
+        sent.contains(&BackendCommand::MessageRequestResponse {
+            conversation: id,
+            response: signal_core::RequestResponse::Accept,
+        }),
+        "the phone is told the request was accepted"
     );
     with_window(cx, &h, |w, _| assert!(w.try_find("composer").is_some()));
 
     // blocking from the header menu path
     with_app(cx, &h, |a, _, cx| a.set_blocked(id, true, cx));
+    assert_eq!(h.sink.take(), vec![BackendCommand::SyncBlockedList]);
     with_window(cx, &h, |w, cx| {
         assert!(w.try_find("request-banner").is_some(), "blocked banner");
         w.click("unblock", cx);
     });
     assert!(!conv(cx, &h, id).unwrap().blocked);
+    assert_eq!(h.sink.take(), vec![BackendCommand::SyncBlockedList]);
+}
+
+#[gpui_kit::test]
+fn block_and_delete_request_tells_the_phone(cx: &mut TestAppContext) {
+    let stranger = uuid::Uuid::from_u128(0x5f);
+    let id = ConversationId::Direct(stranger);
+    let h = setup_with(
+        cx,
+        vec![Mutation::InsertMessage(NewMessage::text(
+            id,
+            stranger,
+            now_millis(),
+            false,
+            "win a prize!",
+        ))],
+    );
+    with_app(cx, &h, |a, w, cx| a.open_conversation(id, w, cx));
+    h.sink.take();
+    with_window(cx, &h, |w, cx| w.click("request-block", cx));
+    let sent = h.sink.take();
+    assert!(sent.contains(&BackendCommand::MessageRequestResponse {
+        conversation: id,
+        response: signal_core::RequestResponse::BlockAndDelete,
+    }));
+    assert!(sent.contains(&BackendCommand::SyncBlockedList));
+    assert!(
+        !sent.iter().any(|c| matches!(
+            c,
+            BackendCommand::MessageRequestResponse {
+                response: signal_core::RequestResponse::Delete,
+                ..
+            }
+        )),
+        "one response, not block-and-delete plus delete"
+    );
+    assert!(conv(cx, &h, id).is_none());
 }
 
 #[gpui_kit::test]

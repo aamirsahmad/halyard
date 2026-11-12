@@ -1087,6 +1087,20 @@ impl Worker {
                 }
             }
             BackendCommand::LeaveGroup { group } => self.leave_group(group),
+            BackendCommand::MessageRequestResponse {
+                conversation,
+                response,
+            } => {
+                let sync = interpret::request_response_sync(conversation, response);
+                self.sync_to_self(sync);
+            }
+            BackendCommand::SyncBlockedList => match self.db.blocked() {
+                Ok((contacts, groups)) => {
+                    let sync = interpret::blocked_sync(&contacts, &groups);
+                    self.sync_to_self(sync);
+                }
+                Err(e) => self.error("Couldn't read the blocked list", e),
+            },
             BackendCommand::PostStory {
                 text,
                 background,
@@ -1095,6 +1109,22 @@ impl Worker {
             BackendCommand::Unlink => self.unlink().await,
             BackendCommand::Shutdown => {}
         }
+    }
+
+    /// Sends a sync message to this account's other devices (the phone).
+    fn sync_to_self(&self, sync: SyncMessage) {
+        let (Some(mut manager), Some(me)) = (self.manager.clone(), self.me) else {
+            return;
+        };
+        let ts = now_millis() as u64;
+        spawn_local(async move {
+            if let Err(e) = manager
+                .send_message(ServiceId::Aci(Aci::from(me)), sync, ts)
+                .await
+            {
+                tracing::warn!(%e, "sync to own devices failed");
+            }
+        });
     }
 
     /// Posts to "My Story": stored locally right away, then sent to each
@@ -1149,6 +1179,7 @@ impl Worker {
                 .to_vec();
             let story = interpret::story_message(text, background, file, profile_key);
             let mut failed = 0;
+            let mut delivered = Vec::with_capacity(recipients.len());
             for uuid in &recipients {
                 if let Err(e) = manager
                     .send_message(
@@ -1160,7 +1191,17 @@ impl Worker {
                 {
                     tracing::warn!(%e, %uuid, "story not delivered");
                     failed += 1;
+                } else {
+                    delivered.push(*uuid);
                 }
+            }
+            // so the phone shows it under My Stories too
+            let sync = interpret::story_sent_sync(story, &delivered, ts);
+            if let Err(e) = manager
+                .send_message(ServiceId::Aci(Aci::from(me)), sync, ts as u64)
+                .await
+            {
+                tracing::warn!(%e, "story sync to own devices failed");
             }
             if failed > 0 {
                 let _ = tx.send(Internal::Error(format!(

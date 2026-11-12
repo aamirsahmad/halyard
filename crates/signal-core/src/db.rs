@@ -9,7 +9,7 @@ use std::path::Path;
 use rusqlite::{Connection, OptionalExtension, Row, params};
 use uuid::Uuid;
 
-use crate::ids::ConversationId;
+use crate::ids::{ConversationId, GroupKey};
 use crate::model::Story;
 use crate::model::{
     Contact, Conversation, MemberChange, Message, MessageKind, MessageStatus, Millis, Reaction,
@@ -231,6 +231,22 @@ fn conversation_from_row(row: &Row) -> rusqlite::Result<Conversation> {
     })
 }
 
+fn blocked_in(conn: &Connection) -> Result<(Vec<Uuid>, Vec<GroupKey>)> {
+    let mut stmt = conn.prepare("SELECT id FROM conversations WHERE blocked = 1 ORDER BY id")?;
+    let ids: Vec<String> = stmt
+        .query_map([], |r| r.get(0))?
+        .collect::<rusqlite::Result<_>>()?;
+    let (mut contacts, mut groups) = (Vec::new(), Vec::new());
+    for id in ids {
+        match id.parse::<ConversationId>() {
+            Ok(ConversationId::Direct(u)) => contacts.push(u),
+            Ok(ConversationId::Group(g)) => groups.push(g),
+            Err(_) => {}
+        }
+    }
+    Ok((contacts, groups))
+}
+
 /// Escapes `%`, `_` and `\` for use in a `LIKE ... ESCAPE '\'` pattern.
 fn like_pattern(query: &str) -> String {
     let mut out = String::with_capacity(query.len() + 2);
@@ -324,6 +340,11 @@ impl Database {
         ))?;
         let rows = stmt.query_map([], conversation_from_row)?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// Blocked contacts and groups, for the blocked-list sync.
+    pub fn blocked(&self) -> Result<(Vec<Uuid>, Vec<GroupKey>)> {
+        blocked_in(&self.conn)
     }
 
     /// Who sees a "My Story" post: everyone you've chatted with directly
@@ -1100,6 +1121,35 @@ impl Writer<'_> {
                 changes
                     .conversations
                     .extend(self.conversation(&conversation)?);
+            }
+            Mutation::BlockedList { contacts, groups } => {
+                let listed: Vec<ConversationId> = contacts
+                    .iter()
+                    .map(|u| ConversationId::Direct(*u))
+                    .chain(groups.iter().map(|g| ConversationId::Group(*g)))
+                    .collect();
+                let (was_contacts, was_groups) = blocked_in(self.conn)?;
+                let mut touched: Vec<ConversationId> = was_contacts
+                    .into_iter()
+                    .map(ConversationId::Direct)
+                    .chain(was_groups.into_iter().map(ConversationId::Group))
+                    .collect();
+                for id in &listed {
+                    self.ensure_conversation(id)?;
+                    if !touched.contains(id) {
+                        touched.push(*id);
+                    }
+                }
+                for id in touched {
+                    let blocked = listed.contains(&id);
+                    let n = self.conn.execute(
+                        "UPDATE conversations SET blocked = ?2 WHERE id = ?1 AND blocked != ?2",
+                        params![id.to_string(), blocked as i64],
+                    )?;
+                    if n > 0 {
+                        changes.conversations.extend(self.conversation(&id)?);
+                    }
+                }
             }
             Mutation::RemoteChatStates { states } => {
                 for st in states {

@@ -1208,3 +1208,32 @@ fn storage_service_state_decides_message_requests() {
             .accepted
     );
 }
+
+#[test]
+fn blocked_list_sync_replaces_the_block_state() {
+    let mut db = db();
+    let bob = ConversationId::Direct(BOB);
+    db.apply(incoming(alice(), ALICE, 100, "hi")).unwrap();
+    db.apply(incoming(bob, BOB, 100, "hi")).unwrap();
+    db.apply(Mutation::SetBlocked {
+        conversation: alice(),
+        blocked: true,
+    })
+    .unwrap();
+    assert_eq!(db.blocked().unwrap(), (vec![ALICE], vec![]));
+
+    // the phone says: Bob and a group are blocked (so Alice no longer is)
+    let g = GroupKey([4; 32]);
+    let ch = db
+        .apply(Mutation::BlockedList {
+            contacts: vec![BOB],
+            groups: vec![g],
+        })
+        .unwrap();
+    assert_eq!(ch.conversations.len(), 3);
+    assert!(!db.conversation(&alice()).unwrap().unwrap().blocked);
+    assert!(db.conversation(&bob).unwrap().unwrap().blocked);
+    let (contacts, groups) = db.blocked().unwrap();
+    assert_eq!(contacts, vec![BOB]);
+    assert_eq!(groups, vec![g]);
+}
