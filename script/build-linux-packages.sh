@@ -65,7 +65,7 @@ Version: $VERSION
 Architecture: $DEBARCH
 Maintainer: Halyard developers
 Installed-Size: $SIZE
-Depends: libc6 (>= 2.35), libasound2 | libasound2t64, libxkbcommon0, libxkbcommon-x11-0, libxcb1, libvulkan1, libwayland-client0
+Depends: libc6 (>= 2.35), libasound2t64 | libasound2 (>= 1.2.6), libxkbcommon0, libxkbcommon-x11-0, libxcb1, libvulkan1, libwayland-client0
 Recommends: mesa-vulkan-drivers
 Section: net
 Priority: optional
