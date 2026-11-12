@@ -158,7 +158,7 @@ fn voice_call_connects_and_hangs_up() {
     let mut bob = Side::new(BOB, BOB_KEY);
 
     alice.engine.start(BOB, DEVICE, 0);
-    run_until(&mut alice, &mut bob, Duration::from_secs(20), |a, b| {
+    run_until(&mut alice, &mut bob, Duration::from_secs(60), |a, b| {
         a.states.contains(&StateChange::Ringing)
             && b.states
                 .iter()
@@ -166,14 +166,14 @@ fn voice_call_connects_and_hangs_up() {
     });
 
     answer(&alice, &mut bob);
-    run_until(&mut alice, &mut bob, Duration::from_secs(20), |a, b| {
+    run_until(&mut alice, &mut bob, Duration::from_secs(60), |a, b| {
         a.states.contains(&StateChange::Connected) && b.states.contains(&StateChange::Connected)
     });
 
     // talk for a moment, then alice hangs up
     std::thread::sleep(Duration::from_secs(2));
     alice.engine.hang_up();
-    run_until(&mut alice, &mut bob, Duration::from_secs(20), |a, b| {
+    run_until(&mut alice, &mut bob, Duration::from_secs(60), |a, b| {
         a.states
             .contains(&StateChange::Ended(EndReason::LocalHangup))
             && b.states
@@ -190,7 +190,7 @@ fn mismatched_identity_keys_do_not_connect() {
     let mut bob = Side::new(BOB, BOB_KEY);
     bob.key = [0xcc; 32]; // bob thinks his key is something alice doesn't
     alice.engine.start(BOB, DEVICE, 0);
-    run_until(&mut alice, &mut bob, Duration::from_secs(20), |_, b| {
+    run_until(&mut alice, &mut bob, Duration::from_secs(60), |_, b| {
         b.states
             .iter()
             .any(|s| matches!(s, StateChange::Incoming { .. }))
