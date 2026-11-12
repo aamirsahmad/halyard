@@ -221,8 +221,43 @@ mod tests {
     }
 }
 
-/// Sample rate of recorded voice notes (speech quality, ~1.9 MB/min as WAV).
+/// Sample rate of the WAV fallback (speech quality, ~1.9 MB/min).
 pub const VOICE_NOTE_RATE: u32 = 16_000;
+
+/// Encodes mono samples as MP3 the way Signal Desktop records voice notes
+/// (LAME, ~90 kbps average, mono). The VBR header is rewritten at the end so
+/// players know the real duration.
+pub fn encode_mp3(samples: &[f32], rate: u32) -> Result<Vec<u8>, String> {
+    use mp3lame_encoder::{
+        Bitrate, Builder, FlushNoGap, Mode, MonoPcm, Quality, VbrMode, max_required_buffer_size,
+    };
+    let err = |e: &dyn std::fmt::Display| format!("MP3 encoding failed: {e}");
+    let mut b = Builder::new().ok_or("MP3 encoder unavailable")?;
+    b.set_num_channels(1).map_err(|e| err(&e))?;
+    b.set_sample_rate(rate).map_err(|e| err(&e))?;
+    b.set_mode(Mode::Mono).map_err(|e| err(&e))?;
+    b.set_vbr_mode(VbrMode::Abr).map_err(|e| err(&e))?;
+    b.set_brate(Bitrate::Kbps96).map_err(|e| err(&e))?;
+    b.set_quality(Quality::Ok).map_err(|e| err(&e))?;
+    b.set_to_write_vbr_tag(true).map_err(|e| err(&e))?;
+    let mut encoder = b.build().map_err(|e| err(&e))?;
+    let mut out = Vec::with_capacity(max_required_buffer_size(samples.len()));
+    encoder
+        .encode_to_vec(MonoPcm(samples), &mut out)
+        .map_err(|e| err(&e))?;
+    out.reserve(7200);
+    encoder
+        .flush_to_vec::<FlushNoGap>(&mut out)
+        .map_err(|e| err(&e))?;
+    let mut tag = Vec::with_capacity(encoder.lame_tag_size());
+    if let Some(n) = encoder.lame_tag_encode_to_vec(&mut tag) {
+        let at = encoder.id3v2_tag_size();
+        if let Some(slot) = out.get_mut(at..at + n.get()) {
+            slot.copy_from_slice(&tag[..n.get()]);
+        }
+    }
+    Ok(out)
+}
 
 /// Linear resampling of mono samples from `from` Hz to `to` Hz.
 pub fn resample(samples: &[f32], from: u32, to: u32) -> Vec<f32> {
@@ -361,14 +396,22 @@ impl Recorder {
         }
     }
 
-    /// Stops and returns the recording as a 16 kHz mono WAV.
-    pub fn finish(mut self) -> Vec<u8> {
+    /// Stops and returns the recording as MP3 (with its file extension),
+    /// falling back to a 16 kHz WAV if the encoder fails.
+    pub fn finish(mut self) -> (Vec<u8>, &'static str) {
         self.halt();
         let samples = std::mem::take(&mut *self.samples.lock().unwrap());
-        encode_wav(
-            &resample(&samples, self.rate, VOICE_NOTE_RATE),
-            VOICE_NOTE_RATE,
-        )
+        match encode_mp3(&samples, self.rate) {
+            Ok(mp3) => (mp3, "mp3"),
+            Err(e) => {
+                tracing::warn!(%e, "falling back to WAV");
+                let wav = encode_wav(
+                    &resample(&samples, self.rate, VOICE_NOTE_RATE),
+                    VOICE_NOTE_RATE,
+                );
+                (wav, "wav")
+            }
+        }
     }
 
     pub fn cancel(mut self) {
@@ -394,6 +437,28 @@ mod recording_tests {
         assert_eq!(r[1], 3.0);
         assert_eq!(resample(&s, 16_000, 16_000), s);
         assert!(resample(&[], 48_000, 16_000).is_empty());
+    }
+
+    #[test]
+    fn mp3_voice_note_is_compact_and_reports_its_duration() {
+        // 3 s of a 440 Hz tone at a typical microphone rate
+        let rate = 48_000;
+        let tone: Vec<f32> = (0..rate * 3)
+            .map(|i| (i as f32 * 440. * std::f32::consts::TAU / rate as f32).sin() * 0.3)
+            .collect();
+        let mp3 = encode_mp3(&tone, rate).unwrap();
+        // ~96 kbps → ~36 KB for 3 s, vs 288 KB as 48 kHz WAV
+        assert!(mp3.len() < 60_000, "{} bytes", mp3.len());
+        assert!(mp3.len() > 10_000, "{} bytes", mp3.len());
+        // the VBR (Xing/Info) header was written into the first frame
+        assert!(
+            mp3.windows(4)
+                .take(200)
+                .any(|w| w == b"Xing" || w == b"Info"),
+            "missing VBR header"
+        );
+        let d = clip_duration(mp3).expect("decodable");
+        assert!((d.as_millis() as i64 - 3000).abs() < 150, "{d:?}");
     }
 
     #[test]

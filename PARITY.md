@@ -59,7 +59,7 @@ Legend: ✅ done · 🚧 partial · ⬜ not yet · ✖ not supported (reason giv
 | Leave group (header menu or group details, with confirmation); "no longer a member" banner | ✅ signed group change sent through libsignal-service's public push API; not yet exercised against a live group |
 | Group membership notices ("Bob left the group.", "Alice added Carol.", "Alice removed you.") | ✅ |
 | Voice notes and audio attachments: in-app playback with progress | ✅ |
-| Recording voice notes (mic button when the composer is empty) | 🚧 sent as 16 kHz WAV with the voice-note flag; Signal's apps record AAC |
+| Recording voice notes (mic button when the composer is empty) | ✅ MP3 via LAME at ~96 kbps mono, like Signal Desktop (which uses LAME at 90 kbps); WAV only if the encoder fails |
 
 ## Composer
 

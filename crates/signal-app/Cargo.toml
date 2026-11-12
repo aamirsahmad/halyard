@@ -27,6 +27,8 @@ futures.workspace = true
 uuid.workspace = true
 notify-rust = "4"
 cpal = "0.18"
+# LAME (bundled, LGPL) for MP3 voice notes, as Signal Desktop records them
+mp3lame-encoder = { version = "0.3", features = ["std"] }
 rodio = { version = "0.23", default-features = false, features = ["playback", "mp4", "mp3", "vorbis", "wav", "flac", "symphonia-aac"] }
 
 [dev-dependencies]

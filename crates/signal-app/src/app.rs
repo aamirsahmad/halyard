@@ -732,13 +732,13 @@ impl SignalApp {
             cx.notify();
             return;
         }
-        let wav = r.finish();
+        let (bytes, ext) = r.finish();
         let name = format!(
-            "{}{}.wav",
+            "{}{}.{ext}",
             signal_core::VOICE_NOTE_PREFIX,
             signal_core::now_millis()
         );
-        match self.attachments.write_scratch(&name, &wav) {
+        match self.attachments.write_scratch(&name, &bytes) {
             Ok(path) => self.commands.send(BackendCommand::SendText {
                 conversation,
                 body: String::new(),
