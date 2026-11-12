@@ -3,10 +3,11 @@
 #
 #   script/fetch-webrtc.sh [platform]   # mac-arm64, mac-x64, linux-x64 or linux-arm64
 #
-# Output: target/webrtc/<platform>/{release,debug}/obj/libwebrtc.a
-# With no argument, it fetches the host platform and links target/webrtc/host to it.
-# .cargo/config.toml sets OUTPUT_DIR=target/webrtc/host for RingRTC's build script.
-# For other targets, set OUTPUT_DIR=target/webrtc/<platform>.
+# Output: .webrtc/<platform>/{release,debug}/obj/libwebrtc.a (outside target/, so that
+# `cargo clean` and CI build caches leave it alone)
+# With no argument, it fetches the host platform and links .webrtc/host to it.
+# .cargo/config.toml sets OUTPUT_DIR=.webrtc/host for RingRTC's build script.
+# For other targets, set OUTPUT_DIR=.webrtc/<platform>.
 # The version and checksums come from RingRTC v2.75.0 (config/webrtc_artifact_checksums.json).
 set -euo pipefail
 
@@ -29,16 +30,16 @@ case "$platform" in
 esac
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
-out="$root/target/webrtc/$platform"
+out="$root/.webrtc/$platform"
 stamp="$out/.version"
-link_host() { if [[ $host == 1 ]]; then ln -sfn "$platform" "$root/target/webrtc/host"; fi; }
+link_host() { if [[ $host == 1 ]]; then ln -sfn "$platform" "$root/.webrtc/host"; fi; }
 if [[ -f "$stamp" && "$(cat "$stamp")" == "$STAMP" && -f "$out/release/obj/libwebrtc.a" ]]; then
   link_host
   echo "$out"
   exit 0
 fi
 
-archive="$root/target/webrtc/webrtc-$WEBRTC_VERSION-$platform-release.tar.bz2"
+archive="$root/.webrtc/webrtc-$WEBRTC_VERSION-$platform-release.tar.bz2"
 mkdir -p "$out"
 if [[ ! -f "$archive" ]] || ! echo "$sum  $archive" | shasum -a 256 -c - >/dev/null 2>&1; then
   echo "Downloading WebRTC $WEBRTC_VERSION for $platform..." >&2

@@ -1,4 +1,4 @@
 [env]
 # Prebuilt WebRTC for RingRTC. script/fetch-webrtc.sh puts it here.
 # Release scripts set OUTPUT_DIR themselves to build for other targets.
-OUTPUT_DIR = { value = "target/webrtc/host", relative = true }
+OUTPUT_DIR = { value = ".webrtc/host", relative = true }

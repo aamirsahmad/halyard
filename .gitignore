@@ -2,5 +2,6 @@ target/
 *.db3
 .DS_Store
 /dist/
+/.webrtc/
 /TRASH/
 /TRASH-FILES.md
