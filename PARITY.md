@@ -21,6 +21,7 @@ Legend: ✅ done · 🚧 partial · ⬜ not yet · ✖ not supported (reason giv
 | Draft, typing, "Message request" and "Blocked" previews | ✅ |
 | Mention and timer-notice previews with names | ✅ |
 | Connection banner (connecting / offline) | ✅ |
+| Narrow windows: chat list collapses to avatars with unread badges; search expands it | ✅ |
 
 ## Conversation
 

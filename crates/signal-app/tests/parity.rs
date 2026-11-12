@@ -805,3 +805,32 @@ fn view_once_photo_opens_once(cx: &mut TestAppContext) {
         assert!(a.viewed && a.local_path.is_none(), "{a:?}");
     });
 }
+
+#[gpui_kit::test]
+fn narrow_window_collapses_chat_list_to_avatars(cx: &mut TestAppContext) {
+    let h = setup(cx);
+    let compact = |cx: &mut TestAppContext| with_app(cx, &h, |a, w, cx| a.sidebar_compact(w, cx));
+    assert!(!compact(cx), "wide window shows the full list");
+    cx.simulate_window_resize(h.window, size(px(640.), px(760.)));
+    cx.run_until_parked();
+    assert!(compact(cx));
+    with_window(cx, &h, |w, cx| {
+        assert!(w.try_find(eid("search")).is_none(), "search box hidden");
+        // rows are still there (as avatars) and still open chats
+        w.click(eid(conversation_dom_id(&alice())), cx);
+    });
+    assert_eq!(
+        cx.update(|cx| h.app.read(cx).state().selected().copied()),
+        Some(alice())
+    );
+    // the search button expands the list while searching
+    with_window(cx, &h, |w, cx| w.click(eid("compact-search"), cx));
+    assert!(!compact(cx));
+    with_window(cx, &h, |w, _| assert!(w.try_find(eid("search")).is_some()));
+    // other lists (new chat) always use the full width
+    with_app(cx, &h, |a, w, cx| {
+        w.focus(&gpui_kit::Focusable::focus_handle(a, cx), cx);
+        a.set_list_mode(signal_app::app::ListMode::NewChat, w, cx)
+    });
+    assert!(!compact(cx));
+}

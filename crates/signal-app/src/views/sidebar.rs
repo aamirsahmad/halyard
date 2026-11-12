@@ -6,8 +6,8 @@ use gpui_kit::component::menu::{ContextMenuExt as _, DropdownMenu as _, PopupMen
 use gpui_kit::component::{Icon, IconName, Sizable as _};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    AnyElement, Context, ElementId, FontWeight, InteractiveElement as _, IntoElement,
-    ParentElement as _, SharedString, StatefulInteractiveElement as _, Styled as _,
+    AnyElement, Context, ElementId, Focusable as _, FontWeight, InteractiveElement as _,
+    IntoElement, ParentElement as _, SharedString, StatefulInteractiveElement as _, Styled as _,
     TestSupportExt as _, Window, div,
 };
 use signal_core::format::conversation_list_time;
@@ -20,6 +20,11 @@ use crate::views::avatar::Avatar;
 use crate::views::rem_px;
 
 pub const SIDEBAR_WIDTH: f32 = 320.;
+/// Width of the avatars-only chat list shown in narrow windows.
+pub const COMPACT_SIDEBAR_WIDTH: f32 = 84.;
+/// Below this window width (in rems × 16) the chat list collapses to avatars,
+/// like Signal Desktop's narrow left pane.
+pub const COMPACT_BREAKPOINT: f32 = 760.;
 
 /// Stable element id of a conversation row (also used by UI tests).
 pub fn conversation_dom_id(id: &ConversationId) -> String {
@@ -31,12 +36,25 @@ pub fn conversation_element_id(id: &ConversationId) -> ElementId {
 }
 
 impl SignalApp {
+    /// Whether the chat list shows avatars only: the window is narrow, the
+    /// plain chat list is showing, and the user isn't searching.
+    pub fn sidebar_compact(&self, window: &Window, cx: &Context<Self>) -> bool {
+        let width_rems = f32::from(window.viewport_size().width) / f32::from(window.rem_size());
+        width_rems * 16. < COMPACT_BREAKPOINT
+            && self.list_mode == ListMode::Chats
+            && self.state.filter().trim().is_empty()
+            && !self.search.read(cx).focus_handle(cx).is_focused(window)
+    }
+
     pub(super) fn render_sidebar(
         &mut self,
         p: &Palette,
-        _: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
+        if self.sidebar_compact(window, cx) {
+            return self.render_compact_sidebar(p, cx);
+        }
         let title = match self.list_mode {
             ListMode::Chats => "Chats",
             ListMode::Archived => "Archived chats",
@@ -162,6 +180,180 @@ impl SignalApp {
             .child(search)
             .children(self.render_connection_banner(p))
             .child(list)
+            .test_support()
+            .into_any_element()
+    }
+
+    fn render_compact_sidebar(&mut self, p: &Palette, cx: &mut Context<Self>) -> AnyElement {
+        let selected = self.state.selected().copied();
+        let visible: Vec<Conversation> = self
+            .state
+            .visible_conversations()
+            .into_iter()
+            .cloned()
+            .collect();
+        let rows: Vec<AnyElement> = visible
+            .iter()
+            .map(|conv| self.render_compact_row(conv, selected == Some(conv.id), p, cx))
+            .collect();
+        let offline = !matches!(
+            self.state.connection,
+            ConnectionState::Online | ConnectionState::Disconnected
+        );
+        div()
+            .id("sidebar")
+            .flex()
+            .flex_col()
+            .items_center()
+            .flex_none()
+            .w(rem_px(COMPACT_SIDEBAR_WIDTH))
+            .h_full()
+            .bg(p.pane)
+            .border_r_1()
+            .border_color(p.border)
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .items_center()
+                    .gap_1()
+                    .py_2()
+                    .flex_none()
+                    .child(
+                        Button::new("compact-search")
+                            .ghost()
+                            .small()
+                            .icon(IconName::Search)
+                            .tooltip("Search")
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.focus_search(window, cx);
+                                cx.notify();
+                            })),
+                    )
+                    .child(
+                        Button::new("new-chat")
+                            .ghost()
+                            .small()
+                            .icon(Icon::new(Icons::SquarePen))
+                            .tooltip("New chat")
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.set_list_mode(ListMode::NewChat, window, cx)
+                            })),
+                    )
+                    .child(
+                        Button::new("stories")
+                            .ghost()
+                            .small()
+                            .icon(Icon::new(Icons::CircleDashed))
+                            .tooltip("Stories")
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.set_list_mode(ListMode::Stories, window, cx)
+                            })),
+                    )
+                    .child(self.render_main_menu(cx)),
+            )
+            .when(offline, |d| {
+                d.child(
+                    div()
+                        .id("connection-banner")
+                        .size(rem_px(8.))
+                        .mb_2()
+                        .rounded_full()
+                        .bg(p.text_secondary)
+                        .tooltip(|window, cx| {
+                            gpui_kit::component::tooltip::Tooltip::new("Not connected")
+                                .build(window, cx)
+                        })
+                        .test_support(),
+                )
+            })
+            .child(
+                div()
+                    .id("conversation-list")
+                    .flex()
+                    .flex_col()
+                    .items_center()
+                    .flex_1()
+                    .min_h_0()
+                    .w_full()
+                    .overflow_y_scroll()
+                    .pb_2()
+                    .children(rows)
+                    .test_support(),
+            )
+            .test_support()
+            .into_any_element()
+    }
+
+    fn render_compact_row(
+        &self,
+        conv: &Conversation,
+        selected: bool,
+        p: &Palette,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let id = conv.id;
+        let unread = conv.unread_count;
+        let title: SharedString = conv.title.clone().into();
+        div()
+            .id(conversation_element_id(&id))
+            .relative()
+            .flex()
+            .items_center()
+            .justify_center()
+            .size(rem_px(68.))
+            .flex_none()
+            .rounded(rem_px(10.))
+            .cursor_pointer()
+            .when(selected, |d| d.bg(p.selected))
+            .when(!selected, |d| d.hover(|s| s.bg(p.hover)))
+            .tooltip(move |window, cx| {
+                gpui_kit::component::tooltip::Tooltip::new(title.clone()).build(window, cx)
+            })
+            .on_click(
+                cx.listener(move |this, _, window, cx| this.open_conversation(id, window, cx)),
+            )
+            .child(
+                Avatar::new(id.color_seed(), conv.title.clone())
+                    .photo(self.photo_for(&id))
+                    .note_to_self(self.is_note_to_self(&id))
+                    .group(id.is_group())
+                    .size(rem_px(48.)),
+            )
+            .when(unread > 0 || conv.marked_unread, |d| {
+                d.child(
+                    div()
+                        .id(SharedString::from(format!("unread-{id}")))
+                        .absolute()
+                        .top(rem_px(6.))
+                        .right(rem_px(4.))
+                        .min_w(rem_px(20.))
+                        .h(rem_px(20.))
+                        .px(rem_px(5.))
+                        .rounded_full()
+                        .border_2()
+                        .border_color(p.pane)
+                        .bg(if conv.muted {
+                            p.text_secondary
+                        } else {
+                            p.badge
+                        })
+                        .text_color(p.accent_text)
+                        .text_size(rem_px(10.))
+                        .font_weight(FontWeight::BOLD)
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .when(unread > 0, |d| {
+                            d.child(if unread > 99 {
+                                "99+".to_string()
+                            } else {
+                                unread.to_string()
+                            })
+                        })
+                        .test_support(),
+                )
+            })
             .test_support()
             .into_any_element()
     }
