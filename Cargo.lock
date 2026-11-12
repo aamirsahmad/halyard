@@ -8788,6 +8788,7 @@ dependencies = [
  "cubeb-sys",
  "futures",
  "hex",
+ "log",
  "mime_guess",
  "presage",
  "presage-store-sqlite",

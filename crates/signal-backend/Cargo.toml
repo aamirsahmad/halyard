@@ -27,12 +27,12 @@ reqwest = { version = "0.13", default-features = false }
 # 1:1 voice calls. Needs the prebuilt WebRTC from script/fetch-webrtc.sh.
 ringrtc = { git = "https://github.com/signalapp/ringrtc", tag = "v2.75.0", features = ["native"] }
 
-# On Linux, use cubeb's C audio backends (PulseAudio, ALSA). Its Rust PulseAudio
-# backend is a static library with its own copy of Rust's core library, which
-# GNU ld rejects as duplicate symbols. ("unittest-build" only turns off the Rust
-# backends.)
-[target.'cfg(target_os = "linux")'.dependencies]
+# Use cubeb's C audio backends (CoreAudio, PulseAudio, ALSA). Its Rust
+# backends are static libraries with their own copy of Rust's core library,
+# which the linkers reject as duplicate symbols. ("unittest-build" only turns
+# off the Rust backends.)
 cubeb-sys = { version = "0.38", features = ["unittest-build"] }
 
 [dev-dependencies]
 tempfile.workspace = true
+log = "0.4"

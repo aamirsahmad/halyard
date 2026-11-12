@@ -51,7 +51,9 @@ jobs:
       # a real RingRTC call between two engines; Linux runners need no audio devices
       - name: Voice call test
         if: runner.os == 'Linux'
-        run: cargo test -p signal-backend --test call_loopback --locked -- --ignored --test-threads=1
+        run: cargo test -p signal-backend --test call_loopback --locked -- --ignored --test-threads=1 --nocapture
+        env:
+          CALL_TEST_LOG: "1"
       - name: Offscreen rendering tests
         run: cargo test -p signal-app --test rendering --locked
         env:

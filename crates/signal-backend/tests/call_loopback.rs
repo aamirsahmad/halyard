@@ -28,8 +28,35 @@ struct Side {
     states: Vec<StateChange>,
 }
 
+/// RingRTC and WebRTC logs on stderr, with CALL_TEST_LOG=1.
+struct StderrLog;
+
+impl log::Log for StderrLog {
+    fn enabled(&self, m: &log::Metadata) -> bool {
+        m.level() <= log::Level::Info
+    }
+    fn log(&self, r: &log::Record) {
+        if self.enabled(r.metadata()) {
+            eprintln!("[{} {}] {}", r.level(), r.target(), r.args());
+        }
+    }
+    fn flush(&self) {}
+}
+
+fn init_logging() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    if std::env::var_os("CALL_TEST_LOG").is_some() {
+        ONCE.call_once(|| {
+            let _ = log::set_logger(&StderrLog);
+            log::set_max_level(log::LevelFilter::Info);
+            ringrtc::webrtc::logging::set_logger(log::LevelFilter::Info);
+        });
+    }
+}
+
 impl Side {
     fn new(me: Uuid, key: [u8; 32]) -> Self {
+        init_logging();
         let (tx, rx) = mpsc::unbounded_channel();
         Self {
             me,
