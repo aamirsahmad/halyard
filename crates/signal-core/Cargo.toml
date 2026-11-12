@@ -22,3 +22,8 @@ rand = "0.9"
 
 [dev-dependencies]
 tempfile.workspace = true
+
+# Release builds for Linux carry their own OpenSSL (for SQLCipher), so the
+# binary runs regardless of the distribution's OpenSSL. macOS uses CommonCrypto.
+[target.'cfg(target_os = "linux")'.dependencies]
+rusqlite = { workspace = true, features = ["bundled-sqlcipher-vendored-openssl"] }

@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- Halyard app icon: a message raised on a mast. Original artwork. -->
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1F5E8F"/>
+      <stop offset="1" stop-color="#0B2742"/>
+    </linearGradient>
+    <linearGradient id="flag" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FFC15A"/>
+      <stop offset="1" stop-color="#F28C28"/>
+    </linearGradient>
+  </defs>
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#sky)"/>
+  <!-- halyard line running beside the mast -->
+  <path d="M300 258 V 820" stroke="#F4EFE6" stroke-width="12" stroke-linecap="round" opacity="0.55"/>
+  <!-- mast and truck -->
+  <rect x="326" y="236" width="40" height="596" rx="20" fill="#F4EFE6"/>
+  <circle cx="346" cy="232" r="34" fill="#F4EFE6"/>
+  <!-- the flag: a speech bubble -->
+  <path d="M366 296 H 694 A 56 56 0 0 1 750 352 V 524 A 56 56 0 0 1 694 580 H 476 L 366 664 Z"
+        fill="url(#flag)"/>
+  <rect x="448" y="372" width="222" height="36" rx="18" fill="#0B2742" opacity="0.88"/>
+  <rect x="448" y="452" width="150" height="36" rx="18" fill="#0B2742" opacity="0.88"/>
+  <!-- cleat -->
+  <rect x="282" y="760" width="64" height="18" rx="9" fill="#F4EFE6" opacity="0.8"/>
+</svg>
