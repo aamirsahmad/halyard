@@ -4,6 +4,10 @@
 # Usage: script/test-linux.sh [extra cargo test args]
 set -euo pipefail
 cd "$(dirname "$0")/.."
+# on macOS the Docker daemon usually lives in a colima VM; start it if needed
+if ! docker info >/dev/null 2>&1 && command -v colima >/dev/null; then
+  colima start
+fi
 DOCKER_BUILDKIT=0 docker build -f script/Dockerfile.linux -t signal-gpui-linux .
 git archive --format=tar HEAD | docker run --rm -i \
   -v signal-gpui-cargo:/root/.cargo/registry \
