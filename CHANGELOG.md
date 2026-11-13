@@ -6,11 +6,18 @@ This file lists the changes in each release. It uses the
 
 ## [Unreleased]
 
+## [0.2.0]
+
 ### Added
 
 - 1:1 voice calls (RingRTC), with call history, ringtone and desktop notification.
 - A choice of ringtones in Preferences (Signal, Classic, Chime, Marimba, Pulse, Sci-fi piano or Silent).
 - Homebrew cask: `brew install --cask aamirsahmad/halyard/halyard`.
+
+### Changed
+
+- Packages are larger (about 50 MB), because they include WebRTC for calls.
+- The Linux `.deb` needs `libstdc++6` and recommends `libpulse0`.
 
 ## [0.1.0]
 
@@ -26,5 +33,6 @@ phone as a linked device. It does not support calls.
 - Themes, zoom, notifications, keyboard shortcuts and encrypted local storage.
 - Packages: macOS `.dmg` and `.zip`, Linux AppImage, `.deb` and `.tar.gz`.
 
-[Unreleased]: https://github.com/aamirsahmad/halyard/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/aamirsahmad/halyard/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/aamirsahmad/halyard/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/aamirsahmad/halyard/releases/tag/v0.1.0

@@ -4,6 +4,8 @@ description = "Domain model, persistence and view-model logic for the Halyard cl
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+# Not on crates.io: it needs git-only dependencies (libsignal, presage, RingRTC).
+publish = false
 
 [dependencies]
 anyhow.workspace = true

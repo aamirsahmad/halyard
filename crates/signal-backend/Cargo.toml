@@ -4,6 +4,8 @@ description = "libsignal/presage powered Signal service backend running on a ded
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+# Not on crates.io: it needs git-only dependencies (libsignal, presage, RingRTC).
+publish = false
 
 [dependencies]
 signal-core.workspace = true

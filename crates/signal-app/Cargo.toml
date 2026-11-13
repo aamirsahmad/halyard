@@ -4,6 +4,8 @@ description = "Signal desktop client built with GPUI"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+# Not on crates.io: it needs git-only dependencies (libsignal, presage, RingRTC).
+publish = false
 
 [lib]
 name = "signal_app"

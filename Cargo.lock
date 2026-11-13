@@ -8758,7 +8758,7 @@ checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
 
 [[package]]
 name = "signal-app"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -8781,7 +8781,7 @@ dependencies = [
 
 [[package]]
 name = "signal-backend"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -8808,7 +8808,7 @@ dependencies = [
 
 [[package]]
 name = "signal-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "aes-gcm 0.10.3",
  "anyhow",
