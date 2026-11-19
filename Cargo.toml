@@ -14,7 +14,7 @@ repository = "https://github.com/aamirsahmad/halyard"
 signal-core = { path = "crates/signal-core" }
 signal-backend = { path = "crates/signal-backend" }
 
-gpui-kit = "0.9.0"
+gpui-kit = "0.10.0"
 presage = { git = "https://github.com/whisperfish/presage", rev = "4b81740610c301cbd54d95f4dbd4cadd692af95e" }
 presage-store-sqlite = { git = "https://github.com/whisperfish/presage", rev = "4b81740610c301cbd54d95f4dbd4cadd692af95e" }
 
